@@ -757,6 +757,9 @@ class Plugin
         ]);
     }
 
+
+
+    
     /**
      * HEAD /files/{filename} - Return metadata via headers, no body
      *
@@ -822,6 +825,125 @@ class Plugin
         $resp->header('X-PFU-Owner', $paths['username']);
 
         return $resp;
+    }
+
+    /**
+     * POST /files/{filename}/rename
+     * Body: new_name
+     */
+    public static function route_rename_file(\WP_REST_Request $req): \WP_REST_Response
+    {
+        $user = \wp_get_current_user();
+        if (!$user || 0 === $user->ID) {
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', self::TEXT_DOMAIN)], 401);
+        }
+
+        $param    = $req->get_param('filename');
+        $sanBase  = self::sanitize_user_filename($param);
+        if (\is_wp_error($sanBase)) {
+            return new \WP_REST_Response(['ok' => false, 'error' => $sanBase->get_error_message()], 400);
+        }
+
+        $newParam = $req->get_param('new_name');
+        $sanNew   = self::sanitize_user_filename($newParam);
+        if (\is_wp_error($sanNew)) {
+            return new \WP_REST_Response(['ok' => false, 'error' => $sanNew->get_error_message()], 400);
+        }
+
+        // Impedisci rename di una thumb direttamente
+        if (Utils::is_thumb_filename($sanBase)) {
+            return new \WP_REST_Response([
+                'ok' => false,
+                'error' => __('Cannot rename generated thumbnails directly', self::TEXT_DOMAIN)
+            ], 400);
+        }
+        if ($sanBase === $sanNew) {
+            return new \WP_REST_Response(['ok' => true, 'unchanged' => true], 200);
+        }
+
+        $paths = self::get_user_base($user);
+        $dir   = $paths['path'];
+        $url   = $paths['url'];
+
+        // Path sorgente/destinazione
+        $srcAbs = $dir . DIRECTORY_SEPARATOR . $sanBase;
+        $dstAbs = $dir . DIRECTORY_SEPARATOR . $sanNew;
+
+        // Validazioni path
+        if (!Utils::is_path_within_base($dir, $srcAbs) || !Utils::is_path_within_base($dir, $dstAbs)) {
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+        }
+
+        if (!file_exists($srcAbs) || !is_file($srcAbs)) {
+            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', self::TEXT_DOMAIN)], 404);
+        }
+        if (file_exists($dstAbs)) {
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Target filename already exists', self::TEXT_DOMAIN)], 409);
+        }
+
+        // MIME/size per log e risposta
+        $size  = @filesize($srcAbs);
+        $mtime = @filemtime($srcAbs);
+        $ft    = \wp_check_filetype($sanBase);
+        $mime  = ($ft && isset($ft['type'])) ? $ft['type'] : 'application/octet-stream';
+
+        // Rename originale
+        if (!@rename($srcAbs, $dstAbs)) {
+            Utils::log_error('Rename failed: unable to move file', [
+                'user' => $paths['username'],
+                'src'  => $srcAbs,
+                'dst'  => $dstAbs,
+            ]);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Unable to rename file', self::TEXT_DOMAIN)], 500);
+        }
+
+        // Metadata: rinomina <old>.meta.json -> <new>.meta.json (se esiste)
+        $oldMeta = $srcAbs . '.meta.json';
+        $newMeta = $dstAbs . '.meta.json';
+        if (file_exists($oldMeta) && is_file($oldMeta)) {
+            @rename($oldMeta, $newMeta);
+        }
+
+        // Thumbnail: se esiste <old>-pfu-thumb.<ext>, rinominala in <new>-pfu-thumb.<ext>
+        $oldThumbAbs = Utils::append_suffix($srcAbs, '-pfu-thumb');
+        $newThumbAbs = Utils::append_suffix($dstAbs, '-pfu-thumb');
+        $thumbRenamed = false;
+        if (file_exists($oldThumbAbs) && is_file($oldThumbAbs)) {
+            $thumbRenamed = @rename($oldThumbAbs, $newThumbAbs);
+            if (!$thumbRenamed) {
+                Utils::log_warning('Rename warning: unable to rename thumbnail', [
+                    'user' => $paths['username'],
+                    'src'  => $oldThumbAbs,
+                    'dst'  => $newThumbAbs,
+                ]);
+            }
+        }
+
+        // Nuovi URL
+        $newUrl      = $url . '/' . rawurlencode($sanNew);
+        $newThumbUrl = null;
+        if ($thumbRenamed || (file_exists($newThumbAbs) && is_file($newThumbAbs))) {
+            $newThumbUrl = Utils::path_replace_basename($newUrl, basename($newThumbAbs));
+        }
+
+        Utils::log_info('Rename completed', [
+            'user'      => $paths['username'],
+            'old_name'  => $sanBase,
+            'new_name'  => $sanNew,
+            'thumb'     => $newThumbUrl ? 'renamed' : 'none',
+        ]);
+
+        return new \WP_REST_Response([
+            'ok'          => true,
+            'old_name'    => $sanBase,
+            'new_name'    => $sanNew,
+            'url'         => $newUrl,
+            'size'        => is_int($size) ? $size : null,
+            'mime'        => $mime,
+            'modified'    => is_int($mtime) ? $mtime : null,
+            // anteprima, se presente
+            'thumb_url'   => $newThumbUrl,
+        ], 200);
     }
 
     /**

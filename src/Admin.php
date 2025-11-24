@@ -28,6 +28,12 @@ class Admin
 
         // Multisite user deletion
         add_action('wpmu_delete_user', [__CLASS__, 'handle_delete_user'], 10, 1);
+
+        // Rename handler (admin-post.php?action=pfu_rename_file)
+        add_action('admin_post_pfu_rename_file', [ __CLASS__, 'handle_rename_file' ]);
+
+        // Notice sulla pagina Library
+        add_action('admin_notices', [ __CLASS__, 'library_notices' ]);
     }
 
     /**
@@ -40,7 +46,10 @@ class Admin
             return;
         }
 
-        wp_add_inline_style('wp-admin', self::get_admin_css());
+        // Registra un handle vuoto e inietta CSS inline su quello
+        wp_register_style('pfu-admin', false);
+        wp_enqueue_style('pfu-admin');
+        wp_add_inline_style('pfu-admin', self::get_admin_css());
     }
 
     /**
@@ -701,6 +710,9 @@ class Admin
 
         $nonce      = wp_create_nonce('pfu_del_' . $name);
         $delete_url = admin_url('admin-post.php?action=pfu_delete_file&file=' . rawurlencode($name) . '&_wpnonce=' . $nonce);
+
+        $rename_nonce_field = wp_nonce_field('pfu_rename_' . $name, '_wpnonce', true, false);
+        $rename_action_url  = admin_url('admin-post.php');
     ?>
         <tr>
             <td class="column-pfu-preview">
@@ -735,6 +747,21 @@ class Admin
                     onclick="return confirm('<?php echo esc_js(__('Delete this file?', 'pfu')); ?>');">
                     <?php esc_html_e('Delete', 'pfu'); ?>
                 </a>
+                <details class="pfu-rename" style="display:inline-block;margin-left:8px;">
+                    <summary><?php esc_html_e('Rename', 'pfu'); ?></summary>
+                    <form method="post" action="<?php echo esc_url($rename_action_url); ?>" style="margin-top:6px;display:flex;gap:6px;align-items:center;">
+                        <input type="hidden" name="action" value="pfu_rename_file" />
+                        <input type="hidden" name="file" value="<?php echo esc_attr($name); ?>" />
+                        <?php echo $rename_nonce_field; ?>
+                        <input type="text"
+                            name="new_name"
+                            value="<?php echo esc_attr($name); ?>"
+                            pattern="[^/]+"
+                            required
+                            style="width:220px;" />
+                        <button type="submit" class="button button-small"><?php esc_html_e('Save', 'pfu'); ?></button>
+                    </form>
+                </details>
             </td>
         </tr>
     <?php
@@ -876,7 +903,6 @@ class Admin
         if (!current_user_can('manage_options')) {
             wp_die(esc_html__('You do not have permission to access this page.', 'pfu'));
         }
-
     ?>
         <div class="wrap">
             <h1><?php esc_html_e('Private Uploader – Settings', 'pfu'); ?></h1>
@@ -1088,5 +1114,136 @@ class Admin
         }, 1);
 
         delete_transient('pfu_notice_users');
+    }
+
+    public static function library_notices() : void {
+        // Mostra i notice solo nella pagina Library, indipendentemente dallo screen id completo
+        if ( ! isset($_GET['page']) || $_GET['page'] !== 'pfu-library' ) {
+            return;
+        }
+
+        $code = isset($_GET['pfu_notice']) ? sanitize_key((string)$_GET['pfu_notice']) : '';
+        if ($code === 'renamed_ok') {
+            $old = isset($_GET['old']) ? sanitize_text_field((string)$_GET['old']) : '';
+            $new = isset($_GET['new']) ? sanitize_text_field((string)$_GET['new']) : '';
+            echo '<div class="notice notice-success is-dismissible"><p>'
+                . esc_html__('File renamed successfully:', 'pfu') . ' '
+                . '<code>' . esc_html($old) . '</code> → <code>' . esc_html($new) . '</code>'
+                . '</p></div>';
+        } elseif ($code === 'rename_err') {
+            $msg = isset($_GET['msg']) ? sanitize_text_field((string)$_GET['msg']) : __('Unable to rename file', 'pfu');
+            echo '<div class="notice notice-error is-dismissible"><p>'
+                . esc_html__('Rename failed:', 'pfu') . ' ' . esc_html($msg)
+                . '</p></div>';
+        }
+    }
+
+    public static function handle_rename_file() : void {
+        if ( ! current_user_can('upload_files') ) {
+            wp_die(__('Insufficient permissions', 'pfu'), 403);
+        }
+
+        $file     = isset($_POST['file']) ? (string) $_POST['file'] : '';
+        $new_name = isset($_POST['new_name']) ? (string) $_POST['new_name'] : '';
+
+        // Nonce per singolo file
+        check_admin_referer('pfu_rename_' . $file);
+
+        $base = \PFU\Plugin::sanitize_user_filename($file);
+        if ( is_wp_error($base) ) {
+            self::redirect_library('rename_err', ['msg' => $base->get_error_message()]);
+        }
+
+        $new = \PFU\Plugin::sanitize_user_filename($new_name);
+        if ( is_wp_error($new) ) {
+            self::redirect_library('rename_err', ['msg' => $new->get_error_message()]);
+        }
+        if ($base === $new) {
+            self::redirect_library('renamed_ok', ['old' => $base, 'new' => $new]);
+        }
+
+        // No rename diretto di una thumbnail
+        if ( \PFU\Utils::is_thumb_filename($base) ) {
+            self::redirect_library('rename_err', ['msg' => __('Cannot rename generated thumbnails directly', 'pfu')]);
+        }
+
+        // Evita di rinominare verso nomi riservati
+        if ( \PFU\Utils::is_thumb_filename($new) ) {
+            self::redirect_library('rename_err', ['msg' => __('Target name cannot be a generated thumbnail', 'pfu')]);
+        }
+        if ( str_ends_with($new, '.meta.json') ) {
+            self::redirect_library('rename_err', ['msg' => __('Target name cannot end with .meta.json', 'pfu')]);
+        }
+
+        $user = wp_get_current_user();
+        $paths = \PFU\Plugin::get_user_base($user);
+        $dir   = $paths['path'];
+
+        // Assicura che la cartella esista (come già fa get_user_base, ma è innocuo)
+        wp_mkdir_p($dir);
+
+        // Conserva estensione originale se il nuovo nome non ne ha una
+        $dotOld = strrpos($base, '.');
+        $dotNew = strrpos($new, '.');
+        if ($dotOld !== false && $dotNew === false) {
+            $ext = substr($base, $dotOld);   // es: ".pdf"
+            $new .= $ext;
+        }
+
+        // Costruisci percorsi assoluti (sorgente e destinazione)
+        $srcAbs = $dir . DIRECTORY_SEPARATOR . $base;
+        $dstAbs = $dir . DIRECTORY_SEPARATOR . $new;
+
+        // Normalizza (slash forward) per un confronto robusto (anche su Windows)
+        $normBase = untrailingslashit(\wp_normalize_path($dir));
+        $normSrc  = \wp_normalize_path($srcAbs);
+        $normDst  = \wp_normalize_path($dstAbs);
+
+        // La sorgente DEVE stare sotto la base e DEVE esistere
+        if (strpos($normSrc, $normBase . '/') !== 0 || !file_exists($srcAbs) || !is_file($srcAbs)) {
+            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'pfu')]);
+        }
+
+        // La destinazione DEVE stare sotto la base e NON esistere ancora
+        if (strpos($normDst, $normBase . '/') !== 0) {
+            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'pfu')]);
+        }
+        if (file_exists($dstAbs)) {
+            self::redirect_library('rename_err', ['msg' => __('Target filename already exists', 'pfu')]);
+        }
+        
+        // blinda anche la directory di destinazione
+        $dstDir = \wp_normalize_path(dirname($dstAbs));
+        if ($dstDir !== $normBase) {
+            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'pfu')]);
+        }
+       
+        // Rinominare originale
+        if ( ! @rename($srcAbs, $dstAbs) ) {
+            self::redirect_library('rename_err', ['msg' => __('Unable to rename file', 'pfu')]);
+        }
+
+        // Rinominare metadata
+        $oldMeta = $srcAbs . '.meta.json';
+        $newMeta = $dstAbs . '.meta.json';
+        if ( file_exists($oldMeta) && is_file($oldMeta) ) {
+            @rename($oldMeta, $newMeta);
+        }
+
+        // Rinominare thumbnail, se presente
+        $oldThumb = \PFU\Utils::append_suffix($srcAbs, '-pfu-thumb');
+        $newThumb = \PFU\Utils::append_suffix($dstAbs, '-pfu-thumb');
+        if ( file_exists($oldThumb) && is_file($oldThumb) ) {
+            @rename($oldThumb, $newThumb);
+        }
+
+        self::redirect_library('renamed_ok', ['old' => $base, 'new' => $new]);
+    }
+
+    private static function redirect_library(string $code, array $args = []) : void {
+        $url = admin_url('admin.php?page=pfu-library');
+        $url = add_query_arg(array_merge(['pfu_notice' => $code], $args), $url);
+        wp_safe_redirect($url);
+        exit;
     }
 }
