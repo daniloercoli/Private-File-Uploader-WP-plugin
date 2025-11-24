@@ -3,7 +3,7 @@
 /**
  * Plugin Name: Private File Uploader
  * Description: Secure file uploads to a per-user directory via custom REST endpoints. Pairs with a React Native client.
- * Version: 0.1.0
+ * Version: 1.2.0
  * Author: Danilo Ercoli
  * License: MIT
  */
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 define('PFU_PLUGIN_FILE', __FILE__);
 define('PFU_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('PFU_PLUGIN_URL', plugin_dir_url(__FILE__));
-define('PFU_VERSION', '0.1.0');
+define('PFU_VERSION', '1.2.0');
 
 // Load classes
 require_once __DIR__ . '/src/Utils.php';
