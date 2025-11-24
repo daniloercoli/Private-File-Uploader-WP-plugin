@@ -196,6 +196,34 @@ class Plugin
             ],
         ]);
 
+        // POST /files/{filename}/rename  - Rename a user's file
+        register_rest_route(self::REST_NS, '/files/(?P<filename>[^/]+)/rename', [
+            [
+                'methods'  => 'POST',
+                'callback' => [__CLASS__, 'route_rename_file'],
+                'permission_callback' => [__CLASS__, 'require_can_upload'],
+                'args' => [
+                    'filename' => [
+                        'description' => 'Current base filename (no slashes)',
+                        'required' => true,
+                        'sanitize_callback' => [__CLASS__, 'sanitize_user_filename'],
+                        'validate_callback' => static function ($value) {
+                            return is_string($value) && strpos($value, '/') === false;
+                        },
+                    ],
+                    'new_name' => [
+                        'description' => 'New base filename (no slashes)',
+                        'type'        => 'string',
+                        'required'    => true,
+                        'sanitize_callback' => [__CLASS__, 'sanitize_user_filename'],
+                        'validate_callback' => static function ($value) {
+                            return is_string($value) && $value !== '' && strpos($value, '/') === false;
+                        },
+                    ],
+                ],
+            ],
+        ]);
+
         // HEAD /files/{filename} - Get file metadata via headers (no body)
         register_rest_route(self::REST_NS, '/files/(?P<filename>[^/]+)', [
             [
