@@ -899,7 +899,45 @@ class Plugin
 
         // Validazioni path
         if (!Utils::is_path_within_base($dir, $srcAbs) || !Utils::is_path_within_base($dir, $dstAbs)) {
+
+        // Normalizza i path per un confronto robusto (no realpath)
+        $normBase = untrailingslashit(wp_normalize_path($dir));
+        $normSrc  = wp_normalize_path($srcAbs);
+        $normDst  = wp_normalize_path($dstAbs);
+
+        // Sorgente: deve essere sotto base ed esistere
+        if (strpos($normSrc, $normBase . '/') !== 0 || !file_exists($srcAbs) || !is_file($srcAbs)) {
             return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+        }
+
+        // Destinazione: deve essere sotto base (anche se non esiste ancora)
+        if (strpos($normDst, $normBase . '/') !== 0) {
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+        }
+
+        // La directory di destinazione deve essere esattamente la base dell'utente
+        $dstDir = wp_normalize_path(dirname($dstAbs));
+        if ($dstDir !== $normBase) {
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+        }
+
+        // Collisione nome
+        if (\file_exists($dstAbs)) {
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Target filename already exists', self::TEXT_DOMAIN)], 409);
+        }
+
+        // Vietato rinominare verso una thumb o verso .meta.json
+        if (Utils::is_thumb_filename($sanNew)) {
+            return new \WP_REST_Response([
+                'ok' => false,
+                'error' => __('Target name cannot be a generated thumbnail', self::TEXT_DOMAIN)
+            ], 400);
+        }
+        if (function_exists('str_ends_with') ? str_ends_with($sanNew, '.meta.json') : substr($sanNew, -10) === '.meta.json') {
+            return new \WP_REST_Response([
+                'ok' => false,
+                'error' => __('Target name cannot end with .meta.json', self::TEXT_DOMAIN)
+            ], 400);
         }
 
         if (!file_exists($srcAbs) || !is_file($srcAbs)) {
@@ -1037,7 +1075,7 @@ class Plugin
 
         // Use Utils sanitization
         $base = Utils::sanitize_filename($filename);
-
+        
         // Additional validation
         if ($base === '' || $base === '.' || $base === '..' || strpos($base, "\0") !== false) {
             return new \WP_Error('pfu_bad_filename', 'Invalid filename');
