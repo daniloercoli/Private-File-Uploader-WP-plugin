@@ -784,9 +784,6 @@ class Plugin
             'owner'   => $paths['username'],
         ]);
     }
-
-
-
     
     /**
      * HEAD /files/{filename} - Return metadata via headers, no body
@@ -898,7 +895,7 @@ class Plugin
         $dstAbs = $dir . DIRECTORY_SEPARATOR . $sanNew;
 
         // Validazioni path
-        if (!Utils::is_path_within_base($dir, $srcAbs) || !Utils::is_path_within_base($dir, $dstAbs)) {
+        wp_mkdir_p($dir); // Assicura che la base esista, non serve ma meglio essere sicuri.
 
         // Normalizza i path per un confronto robusto (no realpath)
         $normBase = untrailingslashit(wp_normalize_path($dir));
@@ -1075,7 +1072,7 @@ class Plugin
 
         // Use Utils sanitization
         $base = Utils::sanitize_filename($filename);
-        
+
         // Additional validation
         if ($base === '' || $base === '.' || $base === '..' || strpos($base, "\0") !== false) {
             return new \WP_Error('pfu_bad_filename', 'Invalid filename');
