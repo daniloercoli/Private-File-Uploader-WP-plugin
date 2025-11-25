@@ -20,6 +20,7 @@ class Admin
         add_action('admin_post_pfu_delete_file', [__CLASS__, 'handle_delete_file']);
         add_action('admin_post_pfu_safe_deactivate_handle', [__CLASS__, 'handle_safe_deactivate']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_styles']);
+        add_action('admin_enqueue_scripts', [ __CLASS__, 'enqueue_library_uploader' ]);
 
         // User deletion hooks (single site)
         add_action('load-users.php', [__CLASS__, 'maybe_hook_users_notice']);
@@ -51,6 +52,54 @@ class Admin
         wp_enqueue_style('pfu-admin');
         wp_add_inline_style('pfu-admin', self::get_admin_css());
     }
+    
+    public static function enqueue_library_uploader(string $hook): void
+    {
+        if (empty($_GET['page']) || $_GET['page'] !== 'pfu-library') return;
+
+        // Core assets
+        wp_enqueue_script('plupload-all');
+        wp_enqueue_script('jquery');
+
+        // Handle “vuoto” su cui iniettare inline script
+        wp_register_script('pfu-library-uploader', false, ['plupload-all','jquery'], false, true);
+        wp_enqueue_script('pfu-library-uploader');
+
+        // Dati per l’upload via REST
+        $policy_max = \PFU\Plugin::effective_max_upload_bytes();
+        $rest_url   = rest_url(\PFU\Plugin::REST_NS . '/upload');
+        $nonce      = wp_create_nonce('wp_rest');
+
+        wp_add_inline_script('pfu-library-uploader', sprintf(
+            'window.PFU_UPLOADER = %s;',
+            wp_json_encode([
+                'restUrl'   => $rest_url,
+                'restNonce' => $nonce,
+                'maxBytes'  => $policy_max,
+                'strings'   => [
+                    'dropHere'  => __('Drop files here or', 'pfu'),
+                    'choose'    => __('choose files', 'pfu'),
+                    'uploading' => __('Uploading…', 'pfu'),
+                    'done'      => __('Done', 'pfu'),
+                    'failed'    => __('Failed', 'pfu'),
+                ],
+            ])
+        ));
+
+        // Stili minimi
+        wp_register_style('pfu-admin-uploader', false);
+        wp_enqueue_style('pfu-admin-uploader');
+        wp_add_inline_style('pfu-admin-uploader', '
+            .pfu-uploader { margin:16px 0; padding:16px; border:2px dashed #ccd0d4; border-radius:8px; background:#fff; text-align:center; }
+            .pfu-uploader.dragover { background:#f7fbff; border-color:#72aee6; }
+            .pfu-uploader .pfu-row { display:inline-flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; }
+            .pfu-uploader-progress { margin-top:10px; font-size:12px; color:#555; display:none; }
+            .pfu-uploader-list { margin-top:10px; text-align:left; max-width:760px; margin-inline:auto; }
+            .pfu-uploader-item { display:flex; justify-content:space-between; padding:6px 8px; background:#f7f7f7; border-radius:4px; margin-top:6px; }
+            .pfu-uploader-item .pfu-status { margin-left:12px; }
+        ');
+    }
+
 
     /**
      * Get admin CSS
@@ -587,13 +636,97 @@ class Admin
     ?>
         <div class="wrap">
             <h1><?php esc_html_e('Your uploads', 'pfu'); ?></h1>
-
+            <div id="pfu-uploader" class="pfu-uploader">
+            <div class="pfu-row">
+                <span><?php echo esc_html(__('Drop files here or', 'pfu')); ?></span>
+                <button id="pfu-pick" type="button" class="button button-primary">
+                <?php echo esc_html(__('Choose files', 'pfu')); ?>
+                </button>
+            </div>
+            <div class="pfu-uploader-progress" id="pfu-progress"></div>
+            <div class="pfu-uploader-list" id="pfu-list"></div>
+            </div>
             <?php if (empty($files)): ?>
                 <p><?php esc_html_e('You have not uploaded any files yet.', 'pfu'); ?></p>
             <?php else: ?>
                 <?php self::render_files_table($files); ?>
             <?php endif; ?>
         </div>
+        <script type="text/javascript">
+            jQuery(function($){
+            if (!window.PFU_UPLOADER) return;
+
+            var cfg = window.PFU_UPLOADER;
+            var $box = $('#pfu-uploader');
+            var $progress = $('#pfu-progress');
+            var $list = $('#pfu-list');
+
+            var uploader = new plupload.Uploader({
+                browse_button: 'pfu-pick',
+                container: 'pfu-uploader',
+                drop_element: 'pfu-uploader',
+                url: cfg.restUrl,
+                runtimes: 'html5,html4',
+                multi_selection: true,
+                headers: { 'X-WP-Nonce': cfg.restNonce },
+                multipart: true,
+                multipart_params: {},
+                file_data_name: 'file',
+                filters: {
+                max_file_size: cfg.maxBytes > 0 ? (cfg.maxBytes + 'b') : undefined
+                }
+            });
+
+            uploader.bind('Init', function(){
+                var el = document.getElementById('pfu-uploader');
+                el.addEventListener('dragover', function(){ $box.addClass('dragover'); });
+                el.addEventListener('dragleave', function(){ $box.removeClass('dragover'); });
+                el.addEventListener('drop', function(){ $box.removeClass('dragover'); });
+            });
+
+            uploader.bind('FilesAdded', function(up, files) {
+                $progress.show().text(cfg.strings.uploading);
+                plupload.each(files, function(file) {
+                var row = $('<div/>', { 'class':'pfu-uploader-item', id:'pfu-'+file.id })
+                    .append($('<span/>').text(file.name + ' (' + plupload.formatSize(file.size) + ')'))
+                    .append($('<span/>', { 'class':'pfu-status', text:'0%' }));
+                $list.append(row);
+                });
+                up.refresh();
+                up.start();
+            });
+
+            uploader.bind('UploadProgress', function(up, file) {
+                $('#pfu-'+file.id+' .pfu-status').text(file.percent + '%');
+            });
+
+            uploader.bind('FileUploaded', function(up, file, info) {
+                try {
+                var res = JSON.parse(info.response || '{}');
+                $('#pfu-'+file.id+' .pfu-status').text(res && res.ok ? cfg.strings.done : cfg.strings.failed);
+                } catch(e) {
+                $('#pfu-'+file.id+' .pfu-status').text(cfg.strings.failed);
+                }
+            });
+
+            uploader.bind('Error', function(up, err) {
+                var msg = err && err.message ? err.message : 'Error';
+                var fileId = err.file && err.file.id ? err.file.id : null;
+                if (fileId) {
+                $('#pfu-'+fileId+' .pfu-status').text(cfg.strings.failed + ' – ' + msg);
+                } else {
+                $list.append($('<div/>', {'class':'pfu-uploader-item'}).text(cfg.strings.failed + ' – ' + msg));
+                }
+            });
+
+            uploader.bind('UploadComplete', function(){
+                location.reload(); // aggiorna la tabella
+            });
+
+            uploader.init();
+            });
+        </script>
+
     <?php
     }
 
