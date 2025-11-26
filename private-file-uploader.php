@@ -7,7 +7,7 @@
  * Version: 1.2.1
  * Author: Danilo Ercoli
  * Author URI:  https://danilo.blog/
- * License: MIT
+ * License: GPLv3
  */
 
 if (!defined('ABSPATH')) {

@@ -353,4 +353,4 @@ curl -s 'http://localhost/wp/index.php?rest_route=/fileuploader/v1/ping'
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+GPLv3 — see [LICENSE](./LICENSE).
