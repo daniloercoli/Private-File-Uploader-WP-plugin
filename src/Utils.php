@@ -167,7 +167,7 @@ class Utils
         if ($raw === false || $raw === '') {
             $human = 'N/A';
         } elseif ($raw === '-1') {
-            $human = __('Unlimited', 'pfu');
+            $human = __('Unlimited', 'wp-private-file-uploader');
         } else {
             $human = self::human_bytes($bytes);
         }
@@ -383,7 +383,7 @@ class Utils
         $system_files = ['.DS_Store', 'Thumbs.db', 'desktop.ini', '._.DS_Store'];
         return in_array($filename, $system_files, true);
     }
-    
+
     /** Helpers per gestire le thumbnail */
 
     /** true se il filename è una thumbnail generata (-pfu-thumb prima dell'estensione) */
@@ -398,7 +398,7 @@ class Utils
         return str_ends_with($name, '-pfu-thumb');
     }
 
-        /** Aggiunge un suffisso prima dell’estensione (es. foto.jpg + '-pfu-thumb' => foto-pfu-thumb.jpg) */
+    /** Aggiunge un suffisso prima dell’estensione (es. foto.jpg + '-pfu-thumb' => foto-pfu-thumb.jpg) */
     public static function append_suffix(string $path, string $suffix): string
     {
         $dot = strrpos($path, '.');
@@ -445,20 +445,35 @@ class Utils
      */
     public static function delete_file_with_metadata(string $filepath): bool
     {
+        $ok = true;
+
         $meta_file = self::get_metadata_filepath($filepath);
-
-        // Delete metadata first
-        if (file_exists($meta_file)) {
-            @unlink($meta_file);
+        if (file_exists($meta_file) && is_file($meta_file)) {
+            $deleted = wp_delete_file($meta_file);
+            if (empty($deleted)) {
+                $ok = false;
+            }
         }
 
-        $thumb_file = Utils::append_suffix($filepath, '-pfu-thumb');
-        if (file_exists($thumb_file)) {
-            @unlink($thumb_file);
+        $thumb_file = self::append_suffix($filepath, '-pfu-thumb');
+        if (file_exists($thumb_file) && is_file($thumb_file)) {
+            $deleted = wp_delete_file($thumb_file);
+            if (empty($deleted)) {
+                $ok = false;
+            }
         }
 
-        // Delete the actual file
-        return @unlink($filepath);
+        if (file_exists($filepath) && is_file($filepath)) {
+            $deleted = wp_delete_file($filepath);
+            if (empty($deleted)) {
+                $ok = false;
+            }
+        } else {
+            // If main file doesn't exist, treat as failure
+            $ok = false;
+        }
+
+        return $ok;
     }
 
     /**
@@ -472,22 +487,38 @@ class Utils
     {
         $meta_file = $filepath . '.meta.json';
 
-        $data = array_merge([
-            'uploaded_at' => current_time('mysql'),
-            'user_id' => get_current_user_id(),
-            'plugin_version' => '0.1.0',
-        ], $metadata);
+        $data = array_merge(
+            [
+                'uploaded_at'     => current_time('mysql'),
+                'user_id'         => get_current_user_id(),
+                'plugin_version'  => defined('PFU_VERSION') ? PFU_VERSION : '0.0.0',
+            ],
+            $metadata
+        );
 
-        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-        if ($json === false) {
+        $json = wp_json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if (false === $json) {
             self::log_error('Failed to encode metadata to JSON', ['filepath' => $filepath]);
             return false;
         }
 
-        $result = @file_put_contents($meta_file, $json);
+        if (!function_exists('WP_Filesystem')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+        }
 
-        if ($result === false) {
+        if (!WP_Filesystem()) {
+            self::log_error('Failed to init WP_Filesystem', ['meta_file' => $meta_file]);
+            return false;
+        }
+
+        global $wp_filesystem;
+        if (!isset($wp_filesystem) || !is_object($wp_filesystem)) {
+            self::log_error('WP_Filesystem not available', ['meta_file' => $meta_file]);
+            return false;
+        }
+
+        $written = (bool) $wp_filesystem->put_contents($meta_file, $json, FS_CHMOD_FILE);
+        if (!$written) {
             self::log_error('Failed to write metadata file', ['meta_file' => $meta_file]);
             return false;
         }
@@ -536,34 +567,23 @@ class Utils
             return false;
         }
 
-        $items = @scandir($dir);
+        if (!function_exists('WP_Filesystem')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+        }
 
-        if (!is_array($items)) {
+        if (!WP_Filesystem()) {
             return false;
         }
 
-        foreach ($items as $item) {
-            if ($item === '.' || $item === '..') {
-                continue;
-            }
-
-            $path = $dir . DIRECTORY_SEPARATOR . $item;
-
-            if (is_link($path)) {
-                @unlink($path);
-                continue;
-            }
-
-            if (is_dir($path)) {
-                self::recursive_rmdir($path);
-                continue;
-            }
-
-            @unlink($path);
+        global $wp_filesystem;
+        if (!isset($wp_filesystem) || !is_object($wp_filesystem)) {
+            return false;
         }
 
-        return @rmdir($dir);
+        // delete( $file, $recursive, $type )
+        return (bool) $wp_filesystem->delete($dir, true, 'd');
     }
+
 
     /**
      * Get client IP address
@@ -582,11 +602,17 @@ class Utils
 
         foreach ($ip_keys as $key) {
             if (!empty($_SERVER[$key])) {
-                $ip = $_SERVER[$key];
+                $raw = wp_unslash($_SERVER[$key]);
+                $ip  = sanitize_text_field($raw);
+
                 // Handle comma-separated IPs (proxies)
                 if (strpos($ip, ',') !== false) {
-                    $ip = trim(explode(',', $ip)[0]);
+                    $parts = explode(',', $ip);
+                    $ip = trim($parts[0]);
                 }
+
+                $ip = trim($ip);
+
                 if (filter_var($ip, FILTER_VALIDATE_IP)) {
                     return $ip;
                 }
@@ -603,7 +629,10 @@ class Utils
      */
     public static function get_user_agent(): string
     {
-        return $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+        if (!empty($_SERVER['HTTP_USER_AGENT'])) {
+            return sanitize_text_field(wp_unslash($_SERVER['HTTP_USER_AGENT']));
+        }
+        return 'Unknown';
     }
 
     /**
@@ -682,30 +711,36 @@ class Utils
         $diff = time() - $timestamp;
 
         if ($diff < 60) {
-            return sprintf(_n('%s second ago', '%s seconds ago', $diff, 'pfu'), $diff);
+            /* translators: %s: number of seconds */
+            return sprintf(_n('%s second ago', '%s seconds ago', $diff, 'wp-private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 60);
         if ($diff < 60) {
-            return sprintf(_n('%s minute ago', '%s minutes ago', $diff, 'pfu'), $diff);
+            /* translators: %s: number of minutes */
+            return sprintf(_n('%s minute ago', '%s minutes ago', $diff, 'wp-private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 60);
         if ($diff < 24) {
-            return sprintf(_n('%s hour ago', '%s hours ago', $diff, 'pfu'), $diff);
+            /* translators: %s: number of hours */
+            return sprintf(_n('%s hour ago', '%s hours ago', $diff, 'wp-private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 24);
         if ($diff < 30) {
-            return sprintf(_n('%s day ago', '%s days ago', $diff, 'pfu'), $diff);
+            /* translators: %s: number of days */
+            return sprintf(_n('%s day ago', '%s days ago', $diff, 'wp-private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 30);
         if ($diff < 12) {
-            return sprintf(_n('%s month ago', '%s months ago', $diff, 'pfu'), $diff);
+            /* translators: %s: number of months */
+            return sprintf(_n('%s month ago', '%s months ago', $diff, 'wp-private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 12);
-        return sprintf(_n('%s year ago', '%s years ago', $diff, 'pfu'), $diff);
+        /* translators: %s: number of years */
+        return sprintf(_n('%s year ago', '%s years ago', $diff, 'wp-private-file-uploader'), $diff);
     }
 }

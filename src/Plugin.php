@@ -9,7 +9,6 @@ if (!defined('ABSPATH')) {
 class Plugin
 {
     const REST_NS   = 'fileuploader/v1';
-    const TEXT_DOMAIN = 'pfu';
     const SLUG      = 'private-file-uploader';
     const SUB_BASE  = 'media/private-file-uploader'; // under uploads/
 
@@ -108,10 +107,6 @@ class Plugin
     public static function init(): void
     {
         add_action('rest_api_init', [__CLASS__, 'register_routes']);
-        // Load translations from /languages
-        add_action('init', function () {
-            load_plugin_textdomain(self::TEXT_DOMAIN, false, dirname(plugin_basename(__FILE__)) . '/languages');
-        });
         Utils::log_debug('REST routes initialization scheduled');
     }
 
@@ -309,7 +304,7 @@ class Plugin
         return new \WP_REST_Response([
             'ok'      => true,
             'user'    => $user ? $user->user_login : null,
-            'message' => __('Hello from Private File Uploader', self::TEXT_DOMAIN),
+            'message' => __('Hello from Private File Uploader', 'wp-private-file-uploader'),
         ]);
     }
 
@@ -325,7 +320,7 @@ class Plugin
         $user = wp_get_current_user();
         if (!$user || 0 === $user->ID) {
             Utils::log_error('Upload failed: user not authenticated');
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', self::TEXT_DOMAIN)], 401);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'wp-private-file-uploader')], 401);
         }
 
         if (!self::check_rate_limit($user->ID)) {
@@ -366,7 +361,7 @@ class Plugin
             Utils::log_warning('Upload rejected: empty file', [
                 'filename' => $original_filename
             ]);
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Empty upload or unknown size', self::TEXT_DOMAIN)], 400);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Empty upload or unknown size', 'wp-private-file-uploader')], 400);
         }
 
         if ($size > $max) {
@@ -380,7 +375,7 @@ class Plugin
 
             return new \WP_REST_Response([
                 'ok'    => false,
-                'error' => __('File too large', self::TEXT_DOMAIN),
+                'error' => __('File too large', 'wp-private-file-uploader'),
                 'limit' => $max,
                 'limitHuman' => Utils::human_bytes($max),
                 'got'   => $size,
@@ -406,7 +401,7 @@ class Plugin
 
             return new \WP_REST_Response([
                 'ok'        => false,
-                'error'     => __('Unsupported media type', self::TEXT_DOMAIN),
+                'error'     => __('Unsupported media type', 'wp-private-file-uploader'),
                 'mime'      => $mime,
                 'allowed'   => $allowed,
                 'hint'      => 'Allowed MIME types can be configured via the pfu_allowed_mime_types filter.',
@@ -526,7 +521,7 @@ class Plugin
     {
         $user = \wp_get_current_user();
         if (!$user || 0 === $user->ID) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', self::TEXT_DOMAIN)], 401);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'wp-private-file-uploader')], 401);
         }
 
         $base = self::get_user_base($user);
@@ -718,7 +713,7 @@ class Plugin
                 'attempted_path' => $abs
             ]);
 
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')], 400);
         }
 
         // Verify it's a file inside the user's folder
@@ -728,7 +723,7 @@ class Plugin
                 'filename' => $base
             ]);
 
-            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', self::TEXT_DOMAIN)], 404);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', 'wp-private-file-uploader')], 404);
         }
 
         if (\is_link($abs)) {
@@ -737,7 +732,7 @@ class Plugin
                 'filename' => $base
             ]);
 
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Symbolic links not allowed', self::TEXT_DOMAIN)], 400);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Symbolic links not allowed', 'wp-private-file-uploader')], 400);
         }
 
         // Get file size before deletion for logging
@@ -746,7 +741,7 @@ class Plugin
         // Delete metadata file if exists
         $meta_file = $abs . '.meta.json';
         if (file_exists($meta_file)) {
-            $meta_deleted = unlink($meta_file);
+            $meta_deleted = (false !== wp_delete_file($meta_file));
             Utils::log_debug('Metadata file deletion', [
                 'user' => $paths['username'],
                 'meta_file' => basename($meta_file),
@@ -755,7 +750,8 @@ class Plugin
         }
 
         // Delete the file
-        $ok = unlink($abs);
+        $deleted_path = wp_delete_file($abs);
+        $ok = ! empty($deleted_path);
 
         if (!$ok) {
             Utils::log_error('Delete failed: unable to remove file', [
@@ -764,7 +760,7 @@ class Plugin
                 'path' => $abs
             ]);
 
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Unable to delete file', self::TEXT_DOMAIN)], 500);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Unable to delete file', 'wp-private-file-uploader')], 500);
         }
 
         Utils::log_info('File deleted successfully', [
@@ -775,7 +771,7 @@ class Plugin
         // Elimina la thumbnail associata se presente (foto-pfu-thumb.jpg)
         $thumb_abs = Utils::append_suffix($abs, '-pfu-thumb');
         if (file_exists($thumb_abs) && is_file($thumb_abs)) {
-            @unlink($thumb_abs);
+            wp_delete_file($thumb_abs);
         }
 
         return new \WP_REST_Response([
@@ -784,7 +780,7 @@ class Plugin
             'owner'   => $paths['username'],
         ]);
     }
-    
+
     /**
      * HEAD /files/{filename} - Return metadata via headers, no body
      *
@@ -795,7 +791,7 @@ class Plugin
     {
         $user = \wp_get_current_user();
         if (!$user || 0 === $user->ID) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', self::TEXT_DOMAIN)], 401);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'wp-private-file-uploader')], 401);
         }
 
         $param = $req->get_param('filename');
@@ -809,11 +805,11 @@ class Plugin
         $abs   = $paths['path'] . DIRECTORY_SEPARATOR . $base;
 
         if (!Utils::is_path_within_base($paths['path'], $abs)) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')], 400);
         }
 
         if (!\file_exists($abs) || !\is_file($abs)) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', self::TEXT_DOMAIN)], 404);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', 'wp-private-file-uploader')], 404);
         }
 
         // Get metadata
@@ -860,11 +856,14 @@ class Plugin
     {
         $user = \wp_get_current_user();
         if (!$user || 0 === $user->ID) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', self::TEXT_DOMAIN)], 401);
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Not authenticated', 'wp-private-file-uploader')],
+                401
+            );
         }
 
-        $param    = $req->get_param('filename');
-        $sanBase  = self::sanitize_user_filename($param);
+        $param   = $req->get_param('filename');
+        $sanBase = self::sanitize_user_filename($param);
         if (\is_wp_error($sanBase)) {
             return new \WP_REST_Response(['ok' => false, 'error' => $sanBase->get_error_message()], 400);
         }
@@ -875,104 +874,148 @@ class Plugin
             return new \WP_REST_Response(['ok' => false, 'error' => $sanNew->get_error_message()], 400);
         }
 
-        // Impedisci rename di una thumb direttamente
+        // Block direct rename of generated thumbnails.
         if (Utils::is_thumb_filename($sanBase)) {
-            return new \WP_REST_Response([
-                'ok' => false,
-                'error' => __('Cannot rename generated thumbnails directly', self::TEXT_DOMAIN)
-            ], 400);
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Cannot rename generated thumbnails directly', 'wp-private-file-uploader')],
+                400
+            );
         }
+
         if ($sanBase === $sanNew) {
             return new \WP_REST_Response(['ok' => true, 'unchanged' => true], 200);
+        }
+
+        // Disallow renaming to a thumbnail name or metadata file name.
+        if (Utils::is_thumb_filename($sanNew)) {
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Target name cannot be a generated thumbnail', 'wp-private-file-uploader')],
+                400
+            );
+        }
+
+        $ends_with_meta = function_exists('str_ends_with')
+            ? str_ends_with($sanNew, '.meta.json')
+            : (substr($sanNew, -10) === '.meta.json');
+
+        if ($ends_with_meta) {
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Target name cannot end with .meta.json', 'wp-private-file-uploader')],
+                400
+            );
         }
 
         $paths = self::get_user_base($user);
         $dir   = $paths['path'];
         $url   = $paths['url'];
 
-        // Path sorgente/destinazione
+        // Ensure base dir exists.
+        wp_mkdir_p($dir);
+
         $srcAbs = $dir . DIRECTORY_SEPARATOR . $sanBase;
         $dstAbs = $dir . DIRECTORY_SEPARATOR . $sanNew;
 
-        // Validazioni path
-        wp_mkdir_p($dir); // Assicura che la base esista, non serve ma meglio essere sicuri.
-
-        // Normalizza i path per un confronto robusto (no realpath)
+        // Normalize for robust comparisons.
         $normBase = untrailingslashit(wp_normalize_path($dir));
         $normSrc  = wp_normalize_path($srcAbs);
         $normDst  = wp_normalize_path($dstAbs);
 
-        // Sorgente: deve essere sotto base ed esistere
+        // Source must be within base and exist as a file.
         if (strpos($normSrc, $normBase . '/') !== 0 || !file_exists($srcAbs) || !is_file($srcAbs)) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')],
+                400
+            );
         }
 
-        // Destinazione: deve essere sotto base (anche se non esiste ancora)
+        // Destination must be within base.
         if (strpos($normDst, $normBase . '/') !== 0) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')],
+                400
+            );
         }
 
-        // La directory di destinazione deve essere esattamente la base dell'utente
+        // Destination directory must be exactly the user's base directory.
         $dstDir = wp_normalize_path(dirname($dstAbs));
         if ($dstDir !== $normBase) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', self::TEXT_DOMAIN)], 400);
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')],
+                400
+            );
         }
 
-        // Collisione nome
-        if (\file_exists($dstAbs)) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Target filename already exists', self::TEXT_DOMAIN)], 409);
-        }
-
-        // Vietato rinominare verso una thumb o verso .meta.json
-        if (Utils::is_thumb_filename($sanNew)) {
-            return new \WP_REST_Response([
-                'ok' => false,
-                'error' => __('Target name cannot be a generated thumbnail', self::TEXT_DOMAIN)
-            ], 400);
-        }
-        if (function_exists('str_ends_with') ? str_ends_with($sanNew, '.meta.json') : substr($sanNew, -10) === '.meta.json') {
-            return new \WP_REST_Response([
-                'ok' => false,
-                'error' => __('Target name cannot end with .meta.json', self::TEXT_DOMAIN)
-            ], 400);
-        }
-
-        if (!file_exists($srcAbs) || !is_file($srcAbs)) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', self::TEXT_DOMAIN)], 404);
-        }
+        // Collision check.
         if (file_exists($dstAbs)) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Target filename already exists', self::TEXT_DOMAIN)], 409);
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Target filename already exists', 'wp-private-file-uploader')],
+                409
+            );
         }
 
-        // MIME/size per log e risposta
-        $size  = @filesize($srcAbs);
-        $mtime = @filemtime($srcAbs);
-        $ft    = \wp_check_filetype($sanBase);
-        $mime  = ($ft && isset($ft['type'])) ? $ft['type'] : 'application/octet-stream';
+        // MIME/size for response/log (best-effort).
+        $size  = filesize($srcAbs);
+        $size  = (false === $size) ? null : (int) $size;
 
-        // Rename originale
-        if (!@rename($srcAbs, $dstAbs)) {
+        $mtime = filemtime($srcAbs);
+        $mtime = (false === $mtime) ? null : (int) $mtime;
+
+        $ft   = wp_check_filetype($sanBase);
+        $mime = (!empty($ft['type'])) ? $ft['type'] : 'application/octet-stream';
+
+        // Init WP_Filesystem for move().
+        if (!function_exists('WP_Filesystem')) {
+            require_once ABSPATH . 'wp-admin/includes/file.php';
+        }
+
+        if (!WP_Filesystem()) {
+            Utils::log_error('Rename failed: WP_Filesystem init failed', [
+                'user' => $paths['username'],
+            ]);
+
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Filesystem not available', 'wp-private-file-uploader')],
+                500
+            );
+        }
+
+        global $wp_filesystem;
+        if (!isset($wp_filesystem) || !is_object($wp_filesystem)) {
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Filesystem not available', 'wp-private-file-uploader')],
+                500
+            );
+        }
+
+        // Move original (do not overwrite).
+        $moved = (bool) $wp_filesystem->move($srcAbs, $dstAbs, false);
+        if (!$moved) {
             Utils::log_error('Rename failed: unable to move file', [
                 'user' => $paths['username'],
                 'src'  => $srcAbs,
                 'dst'  => $dstAbs,
             ]);
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Unable to rename file', self::TEXT_DOMAIN)], 500);
+
+            return new \WP_REST_Response(
+                ['ok' => false, 'error' => __('Unable to rename file', 'wp-private-file-uploader')],
+                500
+            );
         }
 
-        // Metadata: rinomina <old>.meta.json -> <new>.meta.json (se esiste)
+        // Move metadata file if exists (<old>.meta.json -> <new>.meta.json).
         $oldMeta = $srcAbs . '.meta.json';
         $newMeta = $dstAbs . '.meta.json';
         if (file_exists($oldMeta) && is_file($oldMeta)) {
-            @rename($oldMeta, $newMeta);
+            $wp_filesystem->move($oldMeta, $newMeta, true);
         }
 
-        // Thumbnail: se esiste <old>-pfu-thumb.<ext>, rinominala in <new>-pfu-thumb.<ext>
-        $oldThumbAbs = Utils::append_suffix($srcAbs, '-pfu-thumb');
-        $newThumbAbs = Utils::append_suffix($dstAbs, '-pfu-thumb');
+        // Move thumbnail if exists (<old>-pfu-thumb.<ext> -> <new>-pfu-thumb.<ext>).
+        $oldThumbAbs  = Utils::append_suffix($srcAbs, '-pfu-thumb');
+        $newThumbAbs  = Utils::append_suffix($dstAbs, '-pfu-thumb');
         $thumbRenamed = false;
+
         if (file_exists($oldThumbAbs) && is_file($oldThumbAbs)) {
-            $thumbRenamed = @rename($oldThumbAbs, $newThumbAbs);
+            $thumbRenamed = (bool) $wp_filesystem->move($oldThumbAbs, $newThumbAbs, true);
             if (!$thumbRenamed) {
                 Utils::log_warning('Rename warning: unable to rename thumbnail', [
                     'user' => $paths['username'],
@@ -982,32 +1025,33 @@ class Plugin
             }
         }
 
-        // Nuovi URL
+        // New URLs.
         $newUrl      = $url . '/' . rawurlencode($sanNew);
         $newThumbUrl = null;
+
         if ($thumbRenamed || (file_exists($newThumbAbs) && is_file($newThumbAbs))) {
             $newThumbUrl = Utils::path_replace_basename($newUrl, basename($newThumbAbs));
         }
 
         Utils::log_info('Rename completed', [
-            'user'      => $paths['username'],
-            'old_name'  => $sanBase,
-            'new_name'  => $sanNew,
-            'thumb'     => $newThumbUrl ? 'renamed' : 'none',
+            'user'     => $paths['username'],
+            'old_name' => $sanBase,
+            'new_name' => $sanNew,
+            'thumb'    => $newThumbUrl ? 'renamed' : 'none',
         ]);
 
         return new \WP_REST_Response([
-            'ok'          => true,
-            'old_name'    => $sanBase,
-            'new_name'    => $sanNew,
-            'url'         => $newUrl,
-            'size'        => is_int($size) ? $size : null,
-            'mime'        => $mime,
-            'modified'    => is_int($mtime) ? $mtime : null,
-            // anteprima, se presente
-            'thumb_url'   => $newThumbUrl,
+            'ok'        => true,
+            'old_name'  => $sanBase,
+            'new_name'  => $sanNew,
+            'url'       => $newUrl,
+            'size'      => $size,
+            'mime'      => $mime,
+            'modified'  => $mtime,
+            'thumb_url' => $newThumbUrl,
         ], 200);
     }
+
 
     /**
      * Create an empty index.html file in the directory to prevent directory listing (if enabled on server)

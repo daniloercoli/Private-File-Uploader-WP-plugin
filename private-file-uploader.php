@@ -8,6 +8,9 @@
  * Author: Danilo Ercoli
  * Author URI:  https://danilo.blog/
  * License: GPLv3
+ * License URI: https://www.gnu.org/licenses/gpl-3.0.html
+ * Text Domain: wp-private-file-uploader
+ * Domain Path: /languages
  */
 
 if (!defined('ABSPATH')) {
@@ -37,7 +40,7 @@ add_action('plugins_loaded', function () {
 
 add_filter('plugin_action_links_' . plugin_basename(__FILE__), function (array $links) {
     $url = admin_url('admin.php?page=pfu-safe-deactivate');
-    array_unshift($links, '<a href="' . esc_url($url) . '">' . esc_html__('Safe Deactivate', 'pfu') . '</a>');
+    array_unshift($links, '<a href="' . esc_url($url) . '">' . esc_html__('Safe Deactivate', 'wp-private-file-uploader') . '</a>');
     return $links;
 });
 
