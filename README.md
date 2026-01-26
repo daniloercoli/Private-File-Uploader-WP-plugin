@@ -35,7 +35,7 @@ Per-user storage, secure REST API, an admin **Library** with drag-and-drop uploa
 
 ## Requirements
 
-* WordPress **5.6+** (Application Passwords in core)
+* WordPress **6.0+** (Application Passwords in core)
 * PHP **8.0+** (tested with 8.1/8.2/8.3)
 * HTTPS strongly recommended in production
 
