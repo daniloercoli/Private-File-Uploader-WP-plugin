@@ -1,4 +1,4 @@
-# Private File Uploader (WordPress Plugin)
+# Private File Uploader
 
 A complete, self-hosted file upload solution for WordPress.  
 Per-user storage, secure REST API, an admin **Library** with drag-and-drop uploads, automatic thumbnails, and first-class mobile clients.

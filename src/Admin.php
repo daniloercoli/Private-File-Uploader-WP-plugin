@@ -48,7 +48,7 @@ class Admin
         }
 
         // Registra un handle vuoto e inietta CSS inline su quello
-        wp_register_style('pfu-admin', false);
+        wp_register_style('pfu-admin', false, [], PFU_VERSION);
         wp_enqueue_style('pfu-admin');
         wp_add_inline_style('pfu-admin', self::get_admin_css());
     }
@@ -87,7 +87,7 @@ class Admin
         ));
 
         // Stili minimi
-        wp_register_style('pfu-admin-uploader', false);
+        wp_register_style('pfu-admin-uploader', false, [], PFU_VERSION);
         wp_enqueue_style('pfu-admin-uploader');
         wp_add_inline_style('pfu-admin-uploader', '
             .pfu-uploader { margin:16px 0; padding:16px; border:2px dashed #ccd0d4; border-radius:8px; background:#fff; text-align:center; }
@@ -997,7 +997,10 @@ class Admin
 
         check_admin_referer('pfu_safe_deactivate');
 
-        $mode = isset($_POST['pfu_mode']) ? (string)$_POST['pfu_mode'] : 'deny';
+        $mode = isset($_POST['pfu_mode'])
+            ? sanitize_key(wp_unslash($_POST['pfu_mode']))
+            : 'deny';
+
         $root = Plugin::storage_root_base();
 
         Utils::log_info('Safe deactivate initiated', [
@@ -1317,8 +1320,13 @@ class Admin
             );
         }
 
-        $file     = isset($_POST['file']) ? (string) $_POST['file'] : '';
-        $new_name = isset($_POST['new_name']) ? (string) $_POST['new_name'] : '';
+        $file = isset($_POST['file'])
+            ? sanitize_text_field(wp_unslash($_POST['file']))
+            : '';
+
+        $new_name = isset($_POST['new_name'])
+            ? sanitize_text_field(wp_unslash($_POST['new_name']))
+            : '';
 
         // Nonce per singolo file
         check_admin_referer('pfu_rename_' . $file);
