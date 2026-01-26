@@ -55,7 +55,10 @@ class Admin
 
     public static function enqueue_library_uploader(string $hook): void
     {
-        if (empty($_GET['page']) || $_GET['page'] !== 'pfu-library') return;
+        // carica solo nella pagina Library del plugin
+        if (strpos($hook, 'pfu-library') === false) {
+            return;
+        }
 
         // Core assets
         wp_enqueue_script('plupload-all');
@@ -925,16 +928,12 @@ class Admin
         }
 
         $user = wp_get_current_user();
-        $file = isset($_GET['file']) ? (string)$_GET['file'] : '';
-        $nonce = isset($_GET['_wpnonce']) ? (string)$_GET['_wpnonce'] : '';
-
-        if (!wp_verify_nonce($nonce, 'pfu_del_' . $file)) {
-            Utils::log_warning('Delete file failed: invalid nonce', [
-                'user' => $user->user_login,
-                'file' => $file
-            ]);
-            wp_die(esc_html__('Invalid nonce.', 'private-file-uploader'));
+        $file  = isset($_GET['file']) ? sanitize_text_field(wp_unslash($_GET['file'])) : '';
+        if ($file === '') {
+            wp_die(esc_html__('Invalid request.', 'private-file-uploader'));
         }
+
+        check_admin_referer('pfu_del_' . $file);
 
         $base_file = Plugin::sanitize_user_filename($file);
         if (is_wp_error($base_file)) {
@@ -1090,25 +1089,29 @@ class Admin
             return;
         }
 
-        $nonce = wp_create_nonce('pfu_delete_user_files_' . (int)$user->ID);
-
         // Calculate IDs to exclude (single user or bulk)
         $exclude_ids = [];
-        if (isset($_REQUEST['user'])) {
-            $exclude_ids[] = (int) $_REQUEST['user'];
+
+        // Singola cancellazione: ?user=ID
+        $user_raw = filter_input(INPUT_GET, 'user', FILTER_DEFAULT);
+        if ($user_raw !== null && $user_raw !== false && $user_raw !== '') {
+            $exclude_ids[] = absint(wp_unslash($user_raw));
         }
-        if (!empty($_REQUEST['users']) && is_array($_REQUEST['users'])) {
-            foreach ($_REQUEST['users'] as $uid) {
-                $exclude_ids[] = (int) $uid;
-            }
+
+        // Bulk: ?users[]=ID&users[]=ID
+        $users_raw = filter_input(INPUT_GET, 'users', FILTER_DEFAULT, FILTER_REQUIRE_ARRAY);
+        if (!empty($users_raw) && is_array($users_raw)) {
+            $users = wp_unslash($users_raw);
+            $exclude_ids = array_merge($exclude_ids, array_map('absint', (array) $users));
         }
-        $exclude_ids = array_values(array_unique(array_filter($exclude_ids, fn($n) => $n > 0)));
+
+        $exclude_ids = array_values(array_unique(array_filter($exclude_ids, static fn($n) => $n > 0)));
 
     ?>
         <h2><?php esc_html_e('Private Uploader – User files', 'private-file-uploader'); ?></h2>
         <p><?php esc_html_e('Choose what to do with this user\'s uploaded files.', 'private-file-uploader'); ?></p>
 
-        <input type="hidden" name="pfu_nonce" value="<?php echo esc_attr($nonce); ?>" />
+        <?php wp_nonce_field('pfu_delete_user_files_' . (int) $user->ID, 'pfu_nonce'); ?>
 
         <fieldset class="pfu-box" style="border:1px solid #ccd0d4;padding:12px;max-width:680px;background:#fff">
             <label style="display:block;margin-bottom:8px">
@@ -1158,10 +1161,19 @@ class Admin
             return;
         }
 
-        $action = isset($_POST['pfu_user_files_action']) ? (string)$_POST['pfu_user_files_action'] : '';
-        $nonce = isset($_POST['pfu_nonce']) ? (string)$_POST['pfu_nonce'] : '';
 
-        if (empty($action) || !wp_verify_nonce($nonce, 'pfu_delete_user_files_' . (int)$user_id)) {
+        // Verifica nonce PRIMA di processare qualsiasi dato del form
+        if (! isset($_POST['pfu_nonce'])) {
+            return;
+        }
+
+        check_admin_referer('pfu_delete_user_files_' . (int) $user_id, 'pfu_nonce');
+
+        $action = isset($_POST['pfu_user_files_action'])
+            ? sanitize_key(wp_unslash($_POST['pfu_user_files_action']))
+            : '';
+
+        if ($action === '') {
             return;
         }
 
@@ -1296,14 +1308,18 @@ class Admin
 
         $code = isset($_GET['pfu_notice']) ? sanitize_key((string)$_GET['pfu_notice']) : '';
         if ($code === 'renamed_ok') {
-            $old = isset($_GET['old']) ? sanitize_text_field((string)$_GET['old']) : '';
-            $new = isset($_GET['new']) ? sanitize_text_field((string)$_GET['new']) : '';
+            $old = isset($_GET['old']) ? sanitize_text_field(wp_unslash($_GET['old'])) : '';
+            $new = isset($_GET['new']) ? sanitize_text_field(wp_unslash($_GET['new'])) : '';
+
             echo '<div class="notice notice-success is-dismissible"><p>'
                 . esc_html__('File renamed successfully:', 'private-file-uploader') . ' '
                 . '<code>' . esc_html($old) . '</code> → <code>' . esc_html($new) . '</code>'
                 . '</p></div>';
         } elseif ($code === 'rename_err') {
-            $msg = isset($_GET['msg']) ? sanitize_text_field((string)$_GET['msg']) : __('Unable to rename file', 'private-file-uploader');
+            $msg = isset($_GET['msg'])
+                ? sanitize_text_field(wp_unslash($_GET['msg']))
+                : esc_html__('Unable to rename file', 'private-file-uploader');
+
             echo '<div class="notice notice-error is-dismissible"><p>'
                 . esc_html__('Rename failed:', 'private-file-uploader') . ' ' . esc_html($msg)
                 . '</p></div>';
