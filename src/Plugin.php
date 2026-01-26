@@ -304,7 +304,7 @@ class Plugin
         return new \WP_REST_Response([
             'ok'      => true,
             'user'    => $user ? $user->user_login : null,
-            'message' => __('Hello from Private File Uploader', 'wp-private-file-uploader'),
+            'message' => __('Hello from Private File Uploader', 'private-file-uploader'),
         ]);
     }
 
@@ -320,7 +320,7 @@ class Plugin
         $user = wp_get_current_user();
         if (!$user || 0 === $user->ID) {
             Utils::log_error('Upload failed: user not authenticated');
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'wp-private-file-uploader')], 401);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'private-file-uploader')], 401);
         }
 
         if (!self::check_rate_limit($user->ID)) {
@@ -361,7 +361,7 @@ class Plugin
             Utils::log_warning('Upload rejected: empty file', [
                 'filename' => $original_filename
             ]);
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Empty upload or unknown size', 'wp-private-file-uploader')], 400);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Empty upload or unknown size', 'private-file-uploader')], 400);
         }
 
         if ($size > $max) {
@@ -375,7 +375,7 @@ class Plugin
 
             return new \WP_REST_Response([
                 'ok'    => false,
-                'error' => __('File too large', 'wp-private-file-uploader'),
+                'error' => __('File too large', 'private-file-uploader'),
                 'limit' => $max,
                 'limitHuman' => Utils::human_bytes($max),
                 'got'   => $size,
@@ -401,7 +401,7 @@ class Plugin
 
             return new \WP_REST_Response([
                 'ok'        => false,
-                'error'     => __('Unsupported media type', 'wp-private-file-uploader'),
+                'error'     => __('Unsupported media type', 'private-file-uploader'),
                 'mime'      => $mime,
                 'allowed'   => $allowed,
                 'hint'      => 'Allowed MIME types can be configured via the pfu_allowed_mime_types filter.',
@@ -521,7 +521,7 @@ class Plugin
     {
         $user = \wp_get_current_user();
         if (!$user || 0 === $user->ID) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'wp-private-file-uploader')], 401);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'private-file-uploader')], 401);
         }
 
         $base = self::get_user_base($user);
@@ -713,7 +713,7 @@ class Plugin
                 'attempted_path' => $abs
             ]);
 
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')], 400);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', 'private-file-uploader')], 400);
         }
 
         // Verify it's a file inside the user's folder
@@ -723,7 +723,7 @@ class Plugin
                 'filename' => $base
             ]);
 
-            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', 'wp-private-file-uploader')], 404);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', 'private-file-uploader')], 404);
         }
 
         if (\is_link($abs)) {
@@ -732,7 +732,7 @@ class Plugin
                 'filename' => $base
             ]);
 
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Symbolic links not allowed', 'wp-private-file-uploader')], 400);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Symbolic links not allowed', 'private-file-uploader')], 400);
         }
 
         // Get file size before deletion for logging
@@ -760,7 +760,7 @@ class Plugin
                 'path' => $abs
             ]);
 
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Unable to delete file', 'wp-private-file-uploader')], 500);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Unable to delete file', 'private-file-uploader')], 500);
         }
 
         Utils::log_info('File deleted successfully', [
@@ -791,7 +791,7 @@ class Plugin
     {
         $user = \wp_get_current_user();
         if (!$user || 0 === $user->ID) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'wp-private-file-uploader')], 401);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Not authenticated', 'private-file-uploader')], 401);
         }
 
         $param = $req->get_param('filename');
@@ -805,11 +805,11 @@ class Plugin
         $abs   = $paths['path'] . DIRECTORY_SEPARATOR . $base;
 
         if (!Utils::is_path_within_base($paths['path'], $abs)) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')], 400);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('Invalid file path', 'private-file-uploader')], 400);
         }
 
         if (!\file_exists($abs) || !\is_file($abs)) {
-            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', 'wp-private-file-uploader')], 404);
+            return new \WP_REST_Response(['ok' => false, 'error' => __('File not found', 'private-file-uploader')], 404);
         }
 
         // Get metadata
@@ -857,7 +857,7 @@ class Plugin
         $user = \wp_get_current_user();
         if (!$user || 0 === $user->ID) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Not authenticated', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Not authenticated', 'private-file-uploader')],
                 401
             );
         }
@@ -877,7 +877,7 @@ class Plugin
         // Block direct rename of generated thumbnails.
         if (Utils::is_thumb_filename($sanBase)) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Cannot rename generated thumbnails directly', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Cannot rename generated thumbnails directly', 'private-file-uploader')],
                 400
             );
         }
@@ -889,7 +889,7 @@ class Plugin
         // Disallow renaming to a thumbnail name or metadata file name.
         if (Utils::is_thumb_filename($sanNew)) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Target name cannot be a generated thumbnail', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Target name cannot be a generated thumbnail', 'private-file-uploader')],
                 400
             );
         }
@@ -900,7 +900,7 @@ class Plugin
 
         if ($ends_with_meta) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Target name cannot end with .meta.json', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Target name cannot end with .meta.json', 'private-file-uploader')],
                 400
             );
         }
@@ -923,7 +923,7 @@ class Plugin
         // Source must be within base and exist as a file.
         if (strpos($normSrc, $normBase . '/') !== 0 || !file_exists($srcAbs) || !is_file($srcAbs)) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Invalid file path', 'private-file-uploader')],
                 400
             );
         }
@@ -931,7 +931,7 @@ class Plugin
         // Destination must be within base.
         if (strpos($normDst, $normBase . '/') !== 0) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Invalid file path', 'private-file-uploader')],
                 400
             );
         }
@@ -940,7 +940,7 @@ class Plugin
         $dstDir = wp_normalize_path(dirname($dstAbs));
         if ($dstDir !== $normBase) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Invalid file path', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Invalid file path', 'private-file-uploader')],
                 400
             );
         }
@@ -948,7 +948,7 @@ class Plugin
         // Collision check.
         if (file_exists($dstAbs)) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Target filename already exists', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Target filename already exists', 'private-file-uploader')],
                 409
             );
         }
@@ -974,7 +974,7 @@ class Plugin
             ]);
 
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Filesystem not available', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Filesystem not available', 'private-file-uploader')],
                 500
             );
         }
@@ -982,7 +982,7 @@ class Plugin
         global $wp_filesystem;
         if (!isset($wp_filesystem) || !is_object($wp_filesystem)) {
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Filesystem not available', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Filesystem not available', 'private-file-uploader')],
                 500
             );
         }
@@ -997,7 +997,7 @@ class Plugin
             ]);
 
             return new \WP_REST_Response(
-                ['ok' => false, 'error' => __('Unable to rename file', 'wp-private-file-uploader')],
+                ['ok' => false, 'error' => __('Unable to rename file', 'private-file-uploader')],
                 500
             );
         }

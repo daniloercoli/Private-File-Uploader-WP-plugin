@@ -77,11 +77,11 @@ class Admin
                 'restNonce' => $nonce,
                 'maxBytes'  => $policy_max,
                 'strings'   => [
-                    'dropHere'  => __('Drop files here or', 'wp-private-file-uploader'),
-                    'choose'    => __('choose files', 'wp-private-file-uploader'),
-                    'uploading' => __('Uploading…', 'wp-private-file-uploader'),
-                    'done'      => __('Done', 'wp-private-file-uploader'),
-                    'failed'    => __('Failed', 'wp-private-file-uploader'),
+                    'dropHere'  => __('Drop files here or', 'private-file-uploader'),
+                    'choose'    => __('choose files', 'private-file-uploader'),
+                    'uploading' => __('Uploading…', 'private-file-uploader'),
+                    'done'      => __('Done', 'private-file-uploader'),
+                    'failed'    => __('Failed', 'private-file-uploader'),
                 ],
             ])
         ));
@@ -133,8 +133,8 @@ class Admin
         $cap_settings = 'manage_options';
 
         add_menu_page(
-            __('Private Uploader', 'wp-private-file-uploader'),
-            __('Private Uploader', 'wp-private-file-uploader'),
+            __('Private Uploader', 'private-file-uploader'),
+            __('Private Uploader', 'private-file-uploader'),
             $cap_library,
             'pfu-overview',
             [__CLASS__, 'render_overview_page'],
@@ -145,8 +145,8 @@ class Admin
         // Sub: Overview
         add_submenu_page(
             'pfu-overview',
-            __('Overview', 'wp-private-file-uploader'),
-            __('Overview', 'wp-private-file-uploader'),
+            __('Overview', 'private-file-uploader'),
+            __('Overview', 'private-file-uploader'),
             $cap_library,
             'pfu-overview',
             [__CLASS__, 'render_overview_page']
@@ -155,8 +155,8 @@ class Admin
         // Sub: Library
         add_submenu_page(
             'pfu-overview',
-            __('Library', 'wp-private-file-uploader'),
-            __('Library', 'wp-private-file-uploader'),
+            __('Library', 'private-file-uploader'),
+            __('Library', 'private-file-uploader'),
             $cap_library,
             'pfu-library',
             [__CLASS__, 'render_library_page']
@@ -165,8 +165,8 @@ class Admin
         // Sub: Settings
         add_submenu_page(
             'pfu-overview',
-            __('Settings', 'wp-private-file-uploader'),
-            __('Settings', 'wp-private-file-uploader'),
+            __('Settings', 'private-file-uploader'),
+            __('Settings', 'private-file-uploader'),
             $cap_settings,
             'pfu-settings',
             [__CLASS__, 'render_settings_page']
@@ -175,8 +175,8 @@ class Admin
         // Hidden page: Safe Deactivate
         add_submenu_page(
             'pfu-overview',
-            __('Safe Deactivate', 'wp-private-file-uploader'),
-            __('Safe Deactivate', 'wp-private-file-uploader'),
+            __('Safe Deactivate', 'private-file-uploader'),
+            __('Safe Deactivate', 'private-file-uploader'),
             'manage_options',
             'pfu-safe-deactivate',
             [__CLASS__, 'render_safe_deactivate_page']
@@ -201,14 +201,14 @@ class Admin
 
         add_settings_section(
             'pfu_main',
-            __('Upload policy', 'wp-private-file-uploader'),
+            __('Upload policy', 'private-file-uploader'),
             [__CLASS__, 'render_settings_section'],
             'pfu-settings'
         );
 
         add_settings_field(
             'max_upload_bytes',
-            __('Max upload size (bytes)', 'wp-private-file-uploader'),
+            __('Max upload size (bytes)', 'private-file-uploader'),
             [__CLASS__, 'render_field_max_upload_bytes'],
             'pfu-settings',
             'pfu_main'
@@ -216,7 +216,7 @@ class Admin
 
         add_settings_field(
             'allowed_mime_types',
-            __('Allowed MIME types (one per line)', 'wp-private-file-uploader'),
+            __('Allowed MIME types (one per line)', 'private-file-uploader'),
             [__CLASS__, 'render_field_allowed_mime_types'],
             'pfu-settings',
             'pfu_main'
@@ -229,7 +229,7 @@ class Admin
     public static function render_settings_section(): void
     {
 ?>
-        <p><?php esc_html_e('Configure max size and MIME allowlist for uploads handled by this plugin.', 'wp-private-file-uploader'); ?></p>
+        <p><?php esc_html_e('Configure max size and MIME allowlist for uploads handled by this plugin.', 'private-file-uploader'); ?></p>
     <?php
     }
 
@@ -307,7 +307,7 @@ class Admin
             step="1"
             class="regular-text" />
         <p class="description">
-            <?php esc_html_e('Example: 52428800 for 50 MB', 'wp-private-file-uploader'); ?>
+            <?php esc_html_e('Example: 52428800 for 50 MB', 'private-file-uploader'); ?>
         </p>
     <?php
     }
@@ -324,7 +324,7 @@ class Admin
             rows="6"
             class="large-text code"><?php echo esc_textarea($val); ?></textarea>
         <p class="description">
-            <?php esc_html_e('One MIME per line, e.g. application/zip', 'wp-private-file-uploader'); ?>
+            <?php esc_html_e('One MIME per line, e.g. application/zip', 'private-file-uploader'); ?>
         </p>
     <?php
     }
@@ -335,7 +335,7 @@ class Admin
     public static function render_safe_deactivate_page(): void
     {
         if (!current_user_can('manage_options')) {
-            wp_die(esc_html__('You do not have permission to access this page.', 'wp-private-file-uploader'));
+            wp_die(esc_html__('You do not have permission to access this page.', 'private-file-uploader'));
         }
 
         $root = Plugin::storage_root_base();
@@ -346,20 +346,20 @@ class Admin
 
     ?>
         <div class="wrap">
-            <h1><?php esc_html_e('Safe Deactivate – Private Uploader', 'wp-private-file-uploader'); ?></h1>
+            <h1><?php esc_html_e('Safe Deactivate – Private Uploader', 'private-file-uploader'); ?></h1>
 
             <?php if (!$exists): ?>
                 <p class="description">
-                    <?php esc_html_e('Storage directory not found; nothing to clean.', 'wp-private-file-uploader'); ?>
+                    <?php esc_html_e('Storage directory not found; nothing to clean.', 'private-file-uploader'); ?>
                 </p>
             <?php else: ?>
                 <p>
-                    <strong><?php esc_html_e('Storage directory', 'wp-private-file-uploader'); ?>:</strong>
+                    <strong><?php esc_html_e('Storage directory', 'private-file-uploader'); ?>:</strong>
                     <code><?php echo esc_html($root); ?></code>
                 </p>
             <?php endif; ?>
 
-            <p><?php esc_html_e('Choose what to do with stored files before deactivating the plugin.', 'wp-private-file-uploader'); ?></p>
+            <p><?php esc_html_e('Choose what to do with stored files before deactivating the plugin.', 'private-file-uploader'); ?></p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <input type="hidden" name="action" value="pfu_safe_deactivate_handle" />
@@ -368,27 +368,27 @@ class Admin
                 <table class="form-table">
                     <tbody>
                         <tr>
-                            <th scope="row"><?php esc_html_e('Delete all files', 'wp-private-file-uploader'); ?></th>
+                            <th scope="row"><?php esc_html_e('Delete all files', 'private-file-uploader'); ?></th>
                             <td>
                                 <label>
                                     <input type="radio" name="pfu_mode" value="delete" />
-                                    <?php esc_html_e('Delete ALL user files from disk, then deactivate the plugin.', 'wp-private-file-uploader'); ?>
+                                    <?php esc_html_e('Delete ALL user files from disk, then deactivate the plugin.', 'private-file-uploader'); ?>
                                 </label>
                                 <p class="description">
-                                    <?php esc_html_e('This cannot be undone. Consider backing up first.', 'wp-private-file-uploader'); ?>
+                                    <?php esc_html_e('This cannot be undone. Consider backing up first.', 'private-file-uploader'); ?>
                                 </p>
                             </td>
                         </tr>
 
                         <tr>
-                            <th scope="row"><?php esc_html_e('Keep files (block access)', 'wp-private-file-uploader'); ?></th>
+                            <th scope="row"><?php esc_html_e('Keep files (block access)', 'private-file-uploader'); ?></th>
                             <td>
                                 <label>
                                     <input type="radio" name="pfu_mode" value="deny" checked />
-                                    <?php esc_html_e('Keep files on disk and block direct web access where possible.', 'wp-private-file-uploader'); ?>
+                                    <?php esc_html_e('Keep files on disk and block direct web access where possible.', 'private-file-uploader'); ?>
                                 </label>
                                 <p class="description">
-                                    <?php esc_html_e('We will attempt to create deny rules for Apache/IIS. For Nginx, add the snippet below to your server config.', 'wp-private-file-uploader'); ?>
+                                    <?php esc_html_e('We will attempt to create deny rules for Apache/IIS. For Nginx, add the snippet below to your server config.', 'private-file-uploader'); ?>
                                 </p>
 
                                 <?php
@@ -399,9 +399,9 @@ class Admin
                     </tbody>
                 </table>
 
-                <?php submit_button(__('Proceed and deactivate', 'wp-private-file-uploader')); ?>
+                <?php submit_button(__('Proceed and deactivate', 'private-file-uploader')); ?>
                 <a class="button button-secondary" href="<?php echo esc_url(admin_url('plugins.php')); ?>">
-                    <?php esc_html_e('Cancel', 'wp-private-file-uploader'); ?>
+                    <?php esc_html_e('Cancel', 'private-file-uploader'); ?>
                 </a>
             </form>
         </div>
@@ -418,14 +418,14 @@ class Admin
     private static function render_deny_rules_preview(string $htaccess_path, string $web_config_path, string $root): void
     {
     ?>
-        <h4><?php esc_html_e('Apache (.htaccess)', 'wp-private-file-uploader'); ?></h4>
+        <h4><?php esc_html_e('Apache (.htaccess)', 'private-file-uploader'); ?></h4>
         <pre class="pfu-code-block"><code><?php echo esc_html("Options -Indexes\nRequire all denied"); ?></code></pre>
         <p class="description">
-            <?php esc_html_e('Target:', 'wp-private-file-uploader'); ?>
+            <?php esc_html_e('Target:', 'private-file-uploader'); ?>
             <code><?php echo esc_html($htaccess_path); ?></code>
         </p>
 
-        <h4><?php esc_html_e('IIS (web.config)', 'wp-private-file-uploader'); ?></h4>
+        <h4><?php esc_html_e('IIS (web.config)', 'private-file-uploader'); ?></h4>
         <pre class="pfu-code-block"><code><?php
                                             echo esc_html('<configuration>
   <system.webServer>
@@ -440,11 +440,11 @@ class Admin
 </configuration>');
                                             ?></code></pre>
         <p class="description">
-            <?php esc_html_e('Target:', 'wp-private-file-uploader'); ?>
+            <?php esc_html_e('Target:', 'private-file-uploader'); ?>
             <code><?php echo esc_html($web_config_path); ?></code>
         </p>
 
-        <h4><?php esc_html_e('Nginx (add to server config)', 'wp-private-file-uploader'); ?></h4>
+        <h4><?php esc_html_e('Nginx (add to server config)', 'private-file-uploader'); ?></h4>
         <pre class="pfu-code-block"><code><?php
                                             $nginx_location = trailingslashit(str_replace(ABSPATH, '/', $root));
                                             echo esc_html("location ^~ {$nginx_location} {\n    deny all;\n}");
@@ -458,7 +458,7 @@ class Admin
     public static function render_overview_page(): void
     {
         if (!is_user_logged_in()) {
-            wp_die(esc_html__('You must be logged in.', 'wp-private-file-uploader'));
+            wp_die(esc_html__('You must be logged in.', 'private-file-uploader'));
         }
 
         $max_bytes = Plugin::effective_max_upload_bytes();
@@ -466,9 +466,9 @@ class Admin
 
     ?>
         <div class="wrap">
-            <h1><?php esc_html_e('Private Uploader – Overview', 'wp-private-file-uploader'); ?></h1>
+            <h1><?php esc_html_e('Private Uploader – Overview', 'private-file-uploader'); ?></h1>
 
-            <p><?php esc_html_e('This plugin lets you upload files to your private area on this site. The rules below apply to uploads performed via the mobile app or REST API.', 'wp-private-file-uploader'); ?></p>
+            <p><?php esc_html_e('This plugin lets you upload files to your private area on this site. The rules below apply to uploads performed via the mobile app or REST API.', 'private-file-uploader'); ?></p>
 
             <div class="pfu-cards">
                 <?php self::render_max_size_card($max_bytes); ?>
@@ -479,11 +479,11 @@ class Admin
 
             <div class="pfu-actions">
                 <a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=pfu-library')); ?>">
-                    <?php esc_html_e('Open your Library', 'wp-private-file-uploader'); ?>
+                    <?php esc_html_e('Open your Library', 'private-file-uploader'); ?>
                 </a>
                 <?php if (current_user_can('manage_options')): ?>
                     <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=pfu-settings')); ?>">
-                        <?php esc_html_e('Settings', 'wp-private-file-uploader'); ?>
+                        <?php esc_html_e('Settings', 'private-file-uploader'); ?>
                     </a>
                 <?php endif; ?>
             </div>
@@ -500,13 +500,13 @@ class Admin
     {
     ?>
         <div class="pfu-card">
-            <h2><?php esc_html_e('Max upload size', 'wp-private-file-uploader'); ?></h2>
+            <h2><?php esc_html_e('Max upload size', 'private-file-uploader'); ?></h2>
             <p>
                 <strong><?php echo esc_html(Utils::human_bytes($max_bytes)); ?></strong>
                 <span class="pfu-muted">(<?php echo esc_html(number_format($max_bytes)); ?> bytes)</span>
             </p>
             <p class="pfu-muted">
-                <?php esc_html_e('Requests exceeding this limit will be rejected.', 'wp-private-file-uploader'); ?>
+                <?php esc_html_e('Requests exceeding this limit will be rejected.', 'private-file-uploader'); ?>
             </p>
         </div>
     <?php
@@ -521,10 +521,10 @@ class Admin
     {
     ?>
         <div class="pfu-card">
-            <h2><?php esc_html_e('Allowed MIME types', 'wp-private-file-uploader'); ?></h2>
+            <h2><?php esc_html_e('Allowed MIME types', 'private-file-uploader'); ?></h2>
             <?php if (empty($mimes)): ?>
                 <p class="pfu-muted">
-                    <?php esc_html_e('No MIME types configured.', 'wp-private-file-uploader'); ?>
+                    <?php esc_html_e('No MIME types configured.', 'private-file-uploader'); ?>
                 </p>
             <?php else: ?>
                 <ul class="pfu-list">
@@ -534,7 +534,7 @@ class Admin
                 </ul>
             <?php endif; ?>
             <p class="pfu-muted">
-                <?php esc_html_e('Uploads with unsupported types will be rejected.', 'wp-private-file-uploader'); ?>
+                <?php esc_html_e('Uploads with unsupported types will be rejected.', 'private-file-uploader'); ?>
             </p>
         </div>
     <?php
@@ -562,56 +562,56 @@ class Admin
 
     ?>
         <div class="pfu-server-limits">
-            <h2 style="margin-top:0"><?php esc_html_e('Server limits (PHP)', 'wp-private-file-uploader'); ?></h2>
+            <h2 style="margin-top:0"><?php esc_html_e('Server limits (PHP)', 'private-file-uploader'); ?></h2>
 
             <table class="widefat striped" style="margin-top:8px">
                 <tbody>
                     <tr>
-                        <td><?php esc_html_e('upload_max_filesize', 'wp-private-file-uploader'); ?></td>
+                        <td><?php esc_html_e('upload_max_filesize', 'private-file-uploader'); ?></td>
                         <td>
                             <code><?php echo esc_html($up_raw); ?></code>
                             <span class="pfu-muted">(<?php echo esc_html($up_human); ?>)</span>
                         </td>
                     </tr>
                     <tr>
-                        <td><?php esc_html_e('post_max_size', 'wp-private-file-uploader'); ?></td>
+                        <td><?php esc_html_e('post_max_size', 'private-file-uploader'); ?></td>
                         <td>
                             <code><?php echo esc_html($post_raw); ?></code>
                             <span class="pfu-muted">(<?php echo esc_html($post_human); ?>)</span>
                         </td>
                     </tr>
                     <tr>
-                        <td><?php esc_html_e('memory_limit', 'wp-private-file-uploader'); ?></td>
+                        <td><?php esc_html_e('memory_limit', 'private-file-uploader'); ?></td>
                         <td>
                             <code><?php echo esc_html($mem_raw); ?></code>
                             <span class="pfu-muted">(<?php echo esc_html($mem_human); ?>)</span>
                         </td>
                     </tr>
                     <tr>
-                        <td><?php esc_html_e('max_file_uploads', 'wp-private-file-uploader'); ?></td>
+                        <td><?php esc_html_e('max_file_uploads', 'private-file-uploader'); ?></td>
                         <td><code><?php echo esc_html((string)$max_uploads); ?></code></td>
                     </tr>
                     <tr>
-                        <td><?php esc_html_e('max_execution_time', 'wp-private-file-uploader'); ?></td>
+                        <td><?php esc_html_e('max_execution_time', 'private-file-uploader'); ?></td>
                         <td>
                             <code><?php echo esc_html((string)$exec_time); ?></code>
-                            <span class="pfu-muted"><?php esc_html_e('seconds', 'wp-private-file-uploader'); ?></span>
+                            <span class="pfu-muted"><?php esc_html_e('seconds', 'private-file-uploader'); ?></span>
                         </td>
                     </tr>
                 </tbody>
             </table>
 
             <p class="pfu-muted" style="margin-top:8px">
-                <?php esc_html_e('Note: PHP/server limits must also allow the requested size. If uploads fail for large files, raise both upload_max_filesize and post_max_size (and check web server/proxy limits).', 'wp-private-file-uploader'); ?>
+                <?php esc_html_e('Note: PHP/server limits must also allow the requested size. If uploads fail for large files, raise both upload_max_filesize and post_max_size (and check web server/proxy limits).', 'private-file-uploader'); ?>
             </p>
 
             <?php if (!empty($warnings)): ?>
                 <div class="pfu-warning-box">
-                    <strong><?php esc_html_e('Warning:', 'wp-private-file-uploader'); ?></strong>
-                    <?php esc_html_e('Your PHP limits are below the plugin policy. Increase the following:', 'wp-private-file-uploader'); ?>
+                    <strong><?php esc_html_e('Warning:', 'private-file-uploader'); ?></strong>
+                    <?php esc_html_e('Your PHP limits are below the plugin policy. Increase the following:', 'private-file-uploader'); ?>
                     <code><?php echo esc_html(implode(', ', $warnings)); ?></code>
                     <?php if ($policy_max > 0): ?>
-                        – <?php esc_html_e('desired at least', 'wp-private-file-uploader'); ?>:
+                        – <?php esc_html_e('desired at least', 'private-file-uploader'); ?>:
                         <strong><?php echo esc_html(Utils::human_bytes($policy_max)); ?></strong>
                     <?php endif; ?>
                 </div>
@@ -626,7 +626,7 @@ class Admin
     public static function render_library_page(): void
     {
         if (!is_user_logged_in()) {
-            wp_die(esc_html__('You must be logged in.', 'wp-private-file-uploader'));
+            wp_die(esc_html__('You must be logged in.', 'private-file-uploader'));
         }
 
         $user = wp_get_current_user();
@@ -635,19 +635,19 @@ class Admin
 
     ?>
         <div class="wrap">
-            <h1><?php esc_html_e('Your uploads', 'wp-private-file-uploader'); ?></h1>
+            <h1><?php esc_html_e('Your uploads', 'private-file-uploader'); ?></h1>
             <div id="pfu-uploader" class="pfu-uploader">
                 <div class="pfu-row">
-                    <span><?php echo esc_html(__('Drop files here or', 'wp-private-file-uploader')); ?></span>
+                    <span><?php echo esc_html(__('Drop files here or', 'private-file-uploader')); ?></span>
                     <button id="pfu-pick" type="button" class="button button-primary">
-                        <?php echo esc_html(__('Choose files', 'wp-private-file-uploader')); ?>
+                        <?php echo esc_html(__('Choose files', 'private-file-uploader')); ?>
                     </button>
                 </div>
                 <div class="pfu-uploader-progress" id="pfu-progress"></div>
                 <div class="pfu-uploader-list" id="pfu-list"></div>
             </div>
             <?php if (empty($files)): ?>
-                <p><?php esc_html_e('You have not uploaded any files yet.', 'wp-private-file-uploader'); ?></p>
+                <p><?php esc_html_e('You have not uploaded any files yet.', 'private-file-uploader'); ?></p>
             <?php else: ?>
                 <?php self::render_files_table($files); ?>
             <?php endif; ?>
@@ -821,12 +821,12 @@ class Admin
         <table class="widefat fixed striped">
             <thead>
                 <tr>
-                    <th class="column-pfu-preview"><?php esc_html_e('Preview', 'wp-private-file-uploader'); ?></th>
-                    <th><?php esc_html_e('File', 'wp-private-file-uploader'); ?></th>
-                    <th><?php esc_html_e('Size', 'wp-private-file-uploader'); ?></th>
-                    <th><?php esc_html_e('Modified', 'wp-private-file-uploader'); ?></th>
-                    <th><?php esc_html_e('MIME', 'wp-private-file-uploader'); ?></th>
-                    <th><?php esc_html_e('Actions', 'wp-private-file-uploader'); ?></th>
+                    <th class="column-pfu-preview"><?php esc_html_e('Preview', 'private-file-uploader'); ?></th>
+                    <th><?php esc_html_e('File', 'private-file-uploader'); ?></th>
+                    <th><?php esc_html_e('Size', 'private-file-uploader'); ?></th>
+                    <th><?php esc_html_e('Modified', 'private-file-uploader'); ?></th>
+                    <th><?php esc_html_e('MIME', 'private-file-uploader'); ?></th>
+                    <th><?php esc_html_e('Actions', 'private-file-uploader'); ?></th>
                 </tr>
             </thead>
             <tbody>
@@ -892,11 +892,11 @@ class Admin
             <td>
                 <a class="button button-small"
                     href="<?php echo esc_url($delete_url); ?>"
-                    onclick="return confirm('<?php echo esc_js(__('Delete this file?', 'wp-private-file-uploader')); ?>');">
-                    <?php esc_html_e('Delete', 'wp-private-file-uploader'); ?>
+                    onclick="return confirm('<?php echo esc_js(__('Delete this file?', 'private-file-uploader')); ?>');">
+                    <?php esc_html_e('Delete', 'private-file-uploader'); ?>
                 </a>
                 <details class="pfu-rename" style="display:inline-block;margin-left:8px;">
-                    <summary><?php esc_html_e('Rename', 'wp-private-file-uploader'); ?></summary>
+                    <summary><?php esc_html_e('Rename', 'private-file-uploader'); ?></summary>
                     <form method="post" action="<?php echo esc_url($rename_action_url); ?>" style="margin-top:6px;display:flex;gap:6px;align-items:center;">
                         <input type="hidden" name="action" value="pfu_rename_file" />
                         <input type="hidden" name="file" value="<?php echo esc_attr($name); ?>" />
@@ -907,7 +907,7 @@ class Admin
                             pattern="[^/]+"
                             required
                             style="width:220px;" />
-                        <button type="submit" class="button button-small"><?php esc_html_e('Save', 'wp-private-file-uploader'); ?></button>
+                        <button type="submit" class="button button-small"><?php esc_html_e('Save', 'private-file-uploader'); ?></button>
                     </form>
                 </details>
             </td>
@@ -921,7 +921,7 @@ class Admin
     public static function handle_delete_file(): void
     {
         if (!is_user_logged_in()) {
-            wp_die(esc_html__('You must be logged in.', 'wp-private-file-uploader'));
+            wp_die(esc_html__('You must be logged in.', 'private-file-uploader'));
         }
 
         $user = wp_get_current_user();
@@ -933,7 +933,7 @@ class Admin
                 'user' => $user->user_login,
                 'file' => $file
             ]);
-            wp_die(esc_html__('Invalid nonce.', 'wp-private-file-uploader'));
+            wp_die(esc_html__('Invalid nonce.', 'private-file-uploader'));
         }
 
         $base_file = Plugin::sanitize_user_filename($file);
@@ -964,7 +964,7 @@ class Admin
                 'file' => $base_file,
                 'path' => $abs
             ]);
-            wp_die(esc_html__('Invalid path.', 'wp-private-file-uploader'));
+            wp_die(esc_html__('Invalid path.', 'private-file-uploader'));
         }
 
         $ok = Utils::delete_file_with_metadata($abs);
@@ -992,7 +992,7 @@ class Admin
     public static function handle_safe_deactivate(): void
     {
         if (!current_user_can('manage_options')) {
-            wp_die(esc_html__('You do not have permission.', 'wp-private-file-uploader'));
+            wp_die(esc_html__('You do not have permission.', 'private-file-uploader'));
         }
 
         check_admin_referer('pfu_safe_deactivate');
@@ -1063,11 +1063,11 @@ class Admin
     public static function render_settings_page(): void
     {
         if (!current_user_can('manage_options')) {
-            wp_die(esc_html__('You do not have permission to access this page.', 'wp-private-file-uploader'));
+            wp_die(esc_html__('You do not have permission to access this page.', 'private-file-uploader'));
         }
     ?>
         <div class="wrap">
-            <h1><?php esc_html_e('Private Uploader – Settings', 'wp-private-file-uploader'); ?></h1>
+            <h1><?php esc_html_e('Private Uploader – Settings', 'private-file-uploader'); ?></h1>
             <form method="post" action="options.php">
                 <?php
                 settings_fields('pfu_settings_group');
@@ -1105,29 +1105,29 @@ class Admin
         $exclude_ids = array_values(array_unique(array_filter($exclude_ids, fn($n) => $n > 0)));
 
     ?>
-        <h2><?php esc_html_e('Private Uploader – User files', 'wp-private-file-uploader'); ?></h2>
-        <p><?php esc_html_e('Choose what to do with this user\'s uploaded files.', 'wp-private-file-uploader'); ?></p>
+        <h2><?php esc_html_e('Private Uploader – User files', 'private-file-uploader'); ?></h2>
+        <p><?php esc_html_e('Choose what to do with this user\'s uploaded files.', 'private-file-uploader'); ?></p>
 
         <input type="hidden" name="pfu_nonce" value="<?php echo esc_attr($nonce); ?>" />
 
         <fieldset class="pfu-box" style="border:1px solid #ccd0d4;padding:12px;max-width:680px;background:#fff">
             <label style="display:block;margin-bottom:8px">
                 <input type="radio" name="pfu_user_files_action" value="delete" />
-                <strong><?php esc_html_e('Delete all files', 'wp-private-file-uploader'); ?></strong> –
-                <?php esc_html_e('remove this user\'s storage directory permanently.', 'wp-private-file-uploader'); ?>
+                <strong><?php esc_html_e('Delete all files', 'private-file-uploader'); ?></strong> –
+                <?php esc_html_e('remove this user\'s storage directory permanently.', 'private-file-uploader'); ?>
             </label>
 
             <label style="display:block;margin-bottom:8px">
                 <input type="radio" name="pfu_user_files_action" value="reassign" checked />
-                <strong><?php esc_html_e('Reassign to another user', 'wp-private-file-uploader'); ?></strong> –
-                <?php esc_html_e('move the storage directory to the selected user.', 'wp-private-file-uploader'); ?>
+                <strong><?php esc_html_e('Reassign to another user', 'private-file-uploader'); ?></strong> –
+                <?php esc_html_e('move the storage directory to the selected user.', 'private-file-uploader'); ?>
                 <br />
                 <?php
                 wp_dropdown_users([
                     'name' => 'pfu_reassign_user',
                     'selected' => '0',
                     'option_none_value' => '0',
-                    'show_option_none' => __('— Select user —', 'wp-private-file-uploader'),
+                    'show_option_none' => __('— Select user —', 'private-file-uploader'),
                     'exclude' => $exclude_ids,
                     'orderby' => 'user_login',
                     'order' => 'ASC',
@@ -1140,8 +1140,8 @@ class Admin
 
             <label style="display:block;margin-bottom:8px">
                 <input type="radio" name="pfu_user_files_action" value="keep_deny" />
-                <strong><?php esc_html_e('Keep files (no automatic blocking)', 'wp-private-file-uploader'); ?></strong> –
-                <?php esc_html_e('keep files on disk. You must manually add web server rules to block access (Apache/Nginx/IIS).', 'wp-private-file-uploader'); ?>
+                <strong><?php esc_html_e('Keep files (no automatic blocking)', 'private-file-uploader'); ?></strong> –
+                <?php esc_html_e('keep files on disk. You must manually add web server rules to block access (Apache/Nginx/IIS).', 'private-file-uploader'); ?>
             </label>
         </fieldset>
 <?php
@@ -1262,15 +1262,15 @@ class Admin
             $messages = [
                 'kept_manual_rules' => [
                     'type' => 'warning',
-                    'text' => __('Private Uploader: files were kept. Please add deny rules to your web server manually (Apache/Nginx/IIS) to block public access.', 'wp-private-file-uploader')
+                    'text' => __('Private Uploader: files were kept. Please add deny rules to your web server manually (Apache/Nginx/IIS) to block public access.', 'private-file-uploader')
                 ],
                 'reassigned_ok' => [
                     'type' => 'success',
-                    'text' => __('Private Uploader: user files have been reassigned.', 'wp-private-file-uploader')
+                    'text' => __('Private Uploader: user files have been reassigned.', 'private-file-uploader')
                 ],
                 'deleted_ok' => [
                     'type' => 'success',
-                    'text' => __('Private Uploader: user files have been deleted.', 'wp-private-file-uploader')
+                    'text' => __('Private Uploader: user files have been deleted.', 'private-file-uploader')
                 ]
             ];
 
@@ -1299,13 +1299,13 @@ class Admin
             $old = isset($_GET['old']) ? sanitize_text_field((string)$_GET['old']) : '';
             $new = isset($_GET['new']) ? sanitize_text_field((string)$_GET['new']) : '';
             echo '<div class="notice notice-success is-dismissible"><p>'
-                . esc_html__('File renamed successfully:', 'wp-private-file-uploader') . ' '
+                . esc_html__('File renamed successfully:', 'private-file-uploader') . ' '
                 . '<code>' . esc_html($old) . '</code> → <code>' . esc_html($new) . '</code>'
                 . '</p></div>';
         } elseif ($code === 'rename_err') {
-            $msg = isset($_GET['msg']) ? sanitize_text_field((string)$_GET['msg']) : __('Unable to rename file', 'wp-private-file-uploader');
+            $msg = isset($_GET['msg']) ? sanitize_text_field((string)$_GET['msg']) : __('Unable to rename file', 'private-file-uploader');
             echo '<div class="notice notice-error is-dismissible"><p>'
-                . esc_html__('Rename failed:', 'wp-private-file-uploader') . ' ' . esc_html($msg)
+                . esc_html__('Rename failed:', 'private-file-uploader') . ' ' . esc_html($msg)
                 . '</p></div>';
         }
     }
@@ -1314,8 +1314,8 @@ class Admin
     {
         if (! current_user_can('upload_files')) {
             wp_die(
-                esc_html__('Insufficient permissions', 'wp-private-file-uploader'),
-                esc_html__('Error', 'wp-private-file-uploader'),
+                esc_html__('Insufficient permissions', 'private-file-uploader'),
+                esc_html__('Error', 'private-file-uploader'),
                 ['response' => 403]
             );
         }
@@ -1346,15 +1346,15 @@ class Admin
 
         // No rename diretto di una thumbnail
         if (\PFU\Utils::is_thumb_filename($base)) {
-            self::redirect_library('rename_err', ['msg' => __('Cannot rename generated thumbnails directly', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Cannot rename generated thumbnails directly', 'private-file-uploader')]);
         }
 
         // Evita di rinominare verso nomi riservati
         if (\PFU\Utils::is_thumb_filename($new)) {
-            self::redirect_library('rename_err', ['msg' => __('Target name cannot be a generated thumbnail', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Target name cannot be a generated thumbnail', 'private-file-uploader')]);
         }
         if (str_ends_with($new, '.meta.json')) {
-            self::redirect_library('rename_err', ['msg' => __('Target name cannot end with .meta.json', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Target name cannot end with .meta.json', 'private-file-uploader')]);
         }
 
         $user = wp_get_current_user();
@@ -1383,21 +1383,21 @@ class Admin
 
         // La sorgente DEVE stare sotto la base e DEVE esistere
         if (strpos($normSrc, $normBase . '/') !== 0 || !file_exists($srcAbs) || !is_file($srcAbs)) {
-            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'private-file-uploader')]);
         }
 
         // La destinazione DEVE stare sotto la base e NON esistere ancora
         if (strpos($normDst, $normBase . '/') !== 0) {
-            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'private-file-uploader')]);
         }
         if (file_exists($dstAbs)) {
-            self::redirect_library('rename_err', ['msg' => __('Target filename already exists', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Target filename already exists', 'private-file-uploader')]);
         }
 
         // blinda anche la directory di destinazione
         $dstDir = \wp_normalize_path(dirname($dstAbs));
         if ($dstDir !== $normBase) {
-            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Invalid path', 'private-file-uploader')]);
         }
 
         // Rinominare originale
@@ -1409,12 +1409,12 @@ class Admin
         }
 
         if (! $wp_filesystem) {
-            self::redirect_library('rename_err', ['msg' => __('Filesystem not available', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Filesystem not available', 'private-file-uploader')]);
         }
 
         // Move principale
         if (! $wp_filesystem->move($srcAbs, $dstAbs, false)) {
-            self::redirect_library('rename_err', ['msg' => __('Unable to rename file', 'wp-private-file-uploader')]);
+            self::redirect_library('rename_err', ['msg' => __('Unable to rename file', 'private-file-uploader')]);
         }
 
         // Move metadata

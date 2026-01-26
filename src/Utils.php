@@ -167,7 +167,7 @@ class Utils
         if ($raw === false || $raw === '') {
             $human = 'N/A';
         } elseif ($raw === '-1') {
-            $human = __('Unlimited', 'wp-private-file-uploader');
+            $human = __('Unlimited', 'private-file-uploader');
         } else {
             $human = self::human_bytes($bytes);
         }
@@ -712,35 +712,35 @@ class Utils
 
         if ($diff < 60) {
             /* translators: %s: number of seconds */
-            return sprintf(_n('%s second ago', '%s seconds ago', $diff, 'wp-private-file-uploader'), $diff);
+            return sprintf(_n('%s second ago', '%s seconds ago', $diff, 'private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 60);
         if ($diff < 60) {
             /* translators: %s: number of minutes */
-            return sprintf(_n('%s minute ago', '%s minutes ago', $diff, 'wp-private-file-uploader'), $diff);
+            return sprintf(_n('%s minute ago', '%s minutes ago', $diff, 'private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 60);
         if ($diff < 24) {
             /* translators: %s: number of hours */
-            return sprintf(_n('%s hour ago', '%s hours ago', $diff, 'wp-private-file-uploader'), $diff);
+            return sprintf(_n('%s hour ago', '%s hours ago', $diff, 'private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 24);
         if ($diff < 30) {
             /* translators: %s: number of days */
-            return sprintf(_n('%s day ago', '%s days ago', $diff, 'wp-private-file-uploader'), $diff);
+            return sprintf(_n('%s day ago', '%s days ago', $diff, 'private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 30);
         if ($diff < 12) {
             /* translators: %s: number of months */
-            return sprintf(_n('%s month ago', '%s months ago', $diff, 'wp-private-file-uploader'), $diff);
+            return sprintf(_n('%s month ago', '%s months ago', $diff, 'private-file-uploader'), $diff);
         }
 
         $diff = round($diff / 12);
         /* translators: %s: number of years */
-        return sprintf(_n('%s year ago', '%s years ago', $diff, 'wp-private-file-uploader'), $diff);
+        return sprintf(_n('%s year ago', '%s years ago', $diff, 'private-file-uploader'), $diff);
     }
 }
