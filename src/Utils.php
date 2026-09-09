@@ -1,6 +1,6 @@
 <?php
 
-namespace PFU;
+namespace PRIVFILEUP;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -9,7 +9,7 @@ if (!defined('ABSPATH')) {
 class Utils
 {
     /**
-     * Log a message to the debug log (only if WP_DEBUG is enabled)
+     * Emit an opt-in debug action when WordPress debugging is enabled.
      *
      * @param string $message Message to log
      * @param string $level Log level: info, warning, error, debug
@@ -21,24 +21,17 @@ class Utils
             return;
         }
 
-        $level = strtoupper($level);
-        $timestamp = current_time('Y-m-d H:i:s');
-        $user_id = get_current_user_id();
-        $user_info = $user_id ? "user:{$user_id}" : 'guest';
-
-        $log_message = sprintf(
-            '[%s] [PFU-%s] [%s] %s',
-            $timestamp,
-            $level,
-            $user_info,
-            $message
-        );
-
-        if (!empty($context)) {
-            $log_message .= ' | Context: ' . json_encode($context);
-        }
-
-        error_log($log_message);
+        /**
+         * Fires when the plugin emits opt-in diagnostic information.
+         *
+         * Nothing is persisted by default. Site owners may attach a listener
+         * while debugging and are responsible for its retention policy.
+         *
+         * @param string $message Diagnostic message.
+         * @param string $level   Diagnostic level.
+         * @param array  $context Additional context.
+         */
+        do_action('privfileup_debug_log', $message, strtolower($level), $context);
     }
 
     /**
@@ -165,7 +158,7 @@ class Utils
         $bytes = self::ini_to_bytes($raw);
 
         if ($raw === false || $raw === '') {
-            $human = 'N/A';
+            $human = __('N/A', 'private-file-uploader');
         } elseif ($raw === '-1') {
             $human = __('Unlimited', 'private-file-uploader');
         } else {
@@ -176,34 +169,29 @@ class Utils
     }
 
     /**
-     * Sanitize filename with more robust character handling
+     * Validate a basename without changing which file it identifies.
      *
      * @param string $filename Original filename
-     * @return string Sanitized filename
+     * @return string Exact filename, or an empty string when unsafe.
      */
     public static function sanitize_filename(string $filename): string
     {
-        // Remove path separators
-        $base = wp_basename($filename);
-
-        // Transliterate unicode characters
-        $base = remove_accents($base);
-
-        // Replace spaces with underscores
-        $base = str_replace(' ', '_', $base);
-
-        // Remove dangerous characters, keep only alphanumeric, dots, underscores, hyphens
-        $base = preg_replace('/[^A-Za-z0-9._-]/', '', $base);
-
-        // Limit length
-        if (strlen($base) > 255) {
-            $info = pathinfo($base);
-            $name = substr($info['filename'], 0, 200);
-            $ext = isset($info['extension']) ? '.' . $info['extension'] : '';
-            $base = $name . $ext;
+        // Reject separators, control characters, Windows stream syntax, and
+        // names that Windows would resolve to a different basename. Never
+        // transliterate or truncate a lookup: that could target another file.
+        if (
+            $filename === '' ||
+            $filename === '.' ||
+            $filename === '..' ||
+            strlen($filename) > 255 ||
+            preg_match('/[<>:"\/\\\\|?*\x00-\x1F\x7F]/', $filename) ||
+            rtrim($filename, ". ") !== $filename ||
+            wp_check_invalid_utf8($filename) !== $filename
+        ) {
+            return '';
         }
 
-        return $base;
+        return $filename;
     }
 
     /**
@@ -375,7 +363,94 @@ class Utils
      */
     public static function is_metadata_file(string $filename): bool
     {
+        $filename = strtolower($filename);
         return strlen($filename) > 10 && substr($filename, -10) === '.meta.json';
+    }
+
+    /**
+     * Check whether a file matches the complete sidecar schema written by
+     * plugin versions prior to 1.2.1.
+     *
+     * A suffix check alone is deliberately insufficient: users may upload a
+     * legitimate JSON document whose name happens to end in `.meta.json`.
+     *
+     * @param string $filepath Absolute path to the possible sidecar.
+     * @return bool True only for a recognized legacy sidecar.
+     */
+    public static function is_legacy_metadata_sidecar(string $filepath): bool
+    {
+        if (
+            !self::is_metadata_file(basename($filepath)) ||
+            !is_file($filepath) ||
+            is_link($filepath)
+        ) {
+            return false;
+        }
+
+        $size = filesize($filepath);
+        if ($size === false || $size > 65536) {
+            return false;
+        }
+
+        $data = wp_json_file_decode($filepath, ['associative' => true]);
+        if (!is_array($data)) {
+            return false;
+        }
+
+        $required_keys = [
+            'uploaded_at',
+            'user_id',
+            'plugin_version',
+            'original_name',
+            'mime',
+            'size',
+            'ip',
+            'user_agent',
+            'mobile',
+        ];
+        $actual_keys = array_keys($data);
+        sort($required_keys);
+        sort($actual_keys);
+
+        if ($actual_keys !== $required_keys) {
+            return false;
+        }
+
+        return is_string($data['uploaded_at']) &&
+            preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $data['uploaded_at']) === 1 &&
+            is_int($data['user_id']) &&
+            $data['user_id'] >= 0 &&
+            is_string($data['plugin_version']) &&
+            $data['plugin_version'] !== '' &&
+            is_string($data['original_name']) &&
+            $data['original_name'] !== '' &&
+            is_string($data['mime']) &&
+            $data['mime'] !== '' &&
+            is_int($data['size']) &&
+            $data['size'] >= 0 &&
+            is_string($data['ip']) &&
+            filter_var($data['ip'], FILTER_VALIDATE_IP) !== false &&
+            is_string($data['user_agent']) &&
+            $data['user_agent'] !== '' &&
+            is_bool($data['mobile']);
+    }
+
+    /**
+     * Delete a recognized legacy metadata sidecar and verify the result.
+     * Unrecognized files are intentionally left untouched.
+     *
+     * @param string $filepath Absolute path to the possible sidecar.
+     * @return bool True when no recognized legacy sidecar remains.
+     */
+    public static function delete_legacy_metadata_sidecar(string $filepath): bool
+    {
+        if (!self::is_legacy_metadata_sidecar($filepath)) {
+            return true;
+        }
+
+        wp_delete_file($filepath);
+        clearstatcache(true, $filepath);
+        return !file_exists($filepath);
     }
 
     public static function is_system_file(string $filename): bool
@@ -384,25 +459,35 @@ class Utils
         return in_array($filename, $system_files, true);
     }
 
-    /** Helpers per gestire le thumbnail */
+    /** Thumbnail helpers */
 
-    /** true se il filename è una thumbnail generata (-pfu-thumb prima dell'estensione) */
+    /** True if the filename is a generated thumbnail (-privfileup-thumb before the extension). */
     public static function is_thumb_filename(string $filename): bool
     {
-        // foto.jpg => foto-pfu-thumb.jpg
+        $filename = strtolower($filename);
+
+        // photo.jpg => photo-privfileup-thumb.jpg.
         $dot = strrpos($filename, '.');
         if ($dot === false) {
-            return str_ends_with($filename, '-pfu-thumb');
+            return str_ends_with($filename, '-privfileup-thumb');
         }
         $name = substr($filename, 0, $dot);
-        return str_ends_with($name, '-pfu-thumb');
+        return str_ends_with($name, '-privfileup-thumb');
     }
 
-    /** Aggiunge un suffisso prima dell’estensione (es. foto.jpg + '-pfu-thumb' => foto-pfu-thumb.jpg) */
+    /** Adds a suffix before the extension (e.g. photo.jpg + '-privfileup-thumb'). */
     public static function append_suffix(string $path, string $suffix): string
     {
-        $dot = strrpos($path, '.');
-        if ($dot === false) {
+        $dot             = strrpos($path, '.');
+        $forward_slash   = strrpos($path, '/');
+        $backward_slash  = strrpos($path, '\\');
+        $last_separator  = max(
+            false === $forward_slash ? -1 : $forward_slash,
+            false === $backward_slash ? -1 : $backward_slash
+        );
+
+        // A dot in a parent directory is not a filename extension.
+        if ($dot === false || $dot <= $last_separator) {
             return $path . $suffix;
         }
         $name = substr($path, 0, $dot);
@@ -410,7 +495,7 @@ class Utils
         return $name . $suffix . $ext;
     }
 
-    /** Dato l’URL originale, sostituisce il basename con un nuovo filename (mantiene querystring) */
+    /** Given the original URL, replaces the basename with a new filename (preserves query string) */
     public static function path_replace_basename(string $origUrl, string $newBase): string
     {
         $qpos = strpos($origUrl, '?');
@@ -424,7 +509,7 @@ class Utils
         return substr($urlNoQ, 0, $slash + 1) . rawurlencode($newBase) . $query;
     }
 
-    /** Fine Helpers per gestire le thumbnail */
+    /** End thumbnail helpers */
 
     /**
      * Get metadata filename for a given file
@@ -445,114 +530,27 @@ class Utils
      */
     public static function delete_file_with_metadata(string $filepath): bool
     {
-        $ok = true;
-
         $meta_file = self::get_metadata_filepath($filepath);
-        if (file_exists($meta_file) && is_file($meta_file)) {
-            $deleted = wp_delete_file($meta_file);
-            if (empty($deleted)) {
-                $ok = false;
-            }
+        if (!self::delete_legacy_metadata_sidecar($meta_file)) {
+            return false;
         }
 
-        $thumb_file = self::append_suffix($filepath, '-pfu-thumb');
+        $thumb_file = self::append_suffix($filepath, '-privfileup-thumb');
         if (file_exists($thumb_file) && is_file($thumb_file)) {
-            $deleted = wp_delete_file($thumb_file);
-            if (empty($deleted)) {
-                $ok = false;
+            wp_delete_file($thumb_file);
+            clearstatcache(true, $thumb_file);
+            if (file_exists($thumb_file)) {
+                return false;
             }
         }
 
-        if (file_exists($filepath) && is_file($filepath)) {
-            $deleted = wp_delete_file($filepath);
-            if (empty($deleted)) {
-                $ok = false;
-            }
-        } else {
-            // If main file doesn't exist, treat as failure
-            $ok = false;
+        if (file_exists($filepath) && is_file($filepath) && !is_link($filepath)) {
+            wp_delete_file($filepath);
+            clearstatcache(true, $filepath);
+            return !file_exists($filepath);
         }
 
-        return $ok;
-    }
-
-    /**
-     * Save metadata for an uploaded file
-     *
-     * @param string $filepath Path to the file
-     * @param array $metadata Metadata to save
-     * @return bool True on success
-     */
-    public static function save_file_metadata(string $filepath, array $metadata): bool
-    {
-        $meta_file = $filepath . '.meta.json';
-
-        $data = array_merge(
-            [
-                'uploaded_at'     => current_time('mysql'),
-                'user_id'         => get_current_user_id(),
-                'plugin_version'  => defined('PFU_VERSION') ? PFU_VERSION : '0.0.0',
-            ],
-            $metadata
-        );
-
-        $json = wp_json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        if (false === $json) {
-            self::log_error('Failed to encode metadata to JSON', ['filepath' => $filepath]);
-            return false;
-        }
-
-        if (!function_exists('WP_Filesystem')) {
-            require_once ABSPATH . 'wp-admin/includes/file.php';
-        }
-
-        if (!WP_Filesystem()) {
-            self::log_error('Failed to init WP_Filesystem', ['meta_file' => $meta_file]);
-            return false;
-        }
-
-        global $wp_filesystem;
-        if (!isset($wp_filesystem) || !is_object($wp_filesystem)) {
-            self::log_error('WP_Filesystem not available', ['meta_file' => $meta_file]);
-            return false;
-        }
-
-        $written = (bool) $wp_filesystem->put_contents($meta_file, $json, FS_CHMOD_FILE);
-        if (!$written) {
-            self::log_error('Failed to write metadata file', ['meta_file' => $meta_file]);
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Load metadata for a file
-     *
-     * @param string $filepath Path to the file
-     * @return array|null Metadata or null if not found
-     */
-    public static function load_file_metadata(string $filepath): ?array
-    {
-        $meta_file = $filepath . '.meta.json';
-
-        if (!file_exists($meta_file)) {
-            return null;
-        }
-
-        $json = @file_get_contents($meta_file);
-
-        if ($json === false) {
-            return null;
-        }
-
-        $data = json_decode($json, true);
-
-        if (!is_array($data)) {
-            return null;
-        }
-
-        return $data;
+        return false;
     }
 
     /**
@@ -592,30 +590,37 @@ class Utils
      */
     public static function get_client_ip(): string
     {
-        $ip_keys = [
-            'HTTP_CF_CONNECTING_IP', // Cloudflare
-            'HTTP_X_REAL_IP',
-            'HTTP_X_FORWARDED_FOR',
-            'HTTP_CLIENT_IP',
-            'REMOTE_ADDR'
-        ];
+        $candidates = [];
 
-        foreach ($ip_keys as $key) {
-            if (!empty($_SERVER[$key])) {
-                $raw = wp_unslash($_SERVER[$key]);
-                $ip  = sanitize_text_field($raw);
+        if (isset($_SERVER['HTTP_CF_CONNECTING_IP']) && is_string($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+            $candidates[] = sanitize_text_field(wp_unslash($_SERVER['HTTP_CF_CONNECTING_IP']));
+        }
+        if (isset($_SERVER['HTTP_X_REAL_IP']) && is_string($_SERVER['HTTP_X_REAL_IP'])) {
+            $candidates[] = sanitize_text_field(wp_unslash($_SERVER['HTTP_X_REAL_IP']));
+        }
+        if (isset($_SERVER['HTTP_X_FORWARDED_FOR']) && is_string($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+            $candidates[] = sanitize_text_field(wp_unslash($_SERVER['HTTP_X_FORWARDED_FOR']));
+        }
+        if (isset($_SERVER['HTTP_CLIENT_IP']) && is_string($_SERVER['HTTP_CLIENT_IP'])) {
+            $candidates[] = sanitize_text_field(wp_unslash($_SERVER['HTTP_CLIENT_IP']));
+        }
+        if (isset($_SERVER['REMOTE_ADDR']) && is_string($_SERVER['REMOTE_ADDR'])) {
+            $candidates[] = sanitize_text_field(wp_unslash($_SERVER['REMOTE_ADDR']));
+        }
 
-                // Handle comma-separated IPs (proxies)
-                if (strpos($ip, ',') !== false) {
-                    $parts = explode(',', $ip);
-                    $ip = trim($parts[0]);
-                }
+        foreach ($candidates as $candidate) {
+            $ip = sanitize_text_field($candidate);
 
-                $ip = trim($ip);
+            // Handle comma-separated IPs (proxies).
+            if (strpos($ip, ',') !== false) {
+                $parts = explode(',', $ip);
+                $ip = trim($parts[0]);
+            }
 
-                if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                    return $ip;
-                }
+            $ip = trim($ip);
+
+            if (filter_var($ip, FILTER_VALIDATE_IP)) {
+                return $ip;
             }
         }
 

@@ -1,6 +1,6 @@
 <?php
 
-namespace PFU;
+namespace PRIVFILEUP;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -8,7 +8,9 @@ if (!defined('ABSPATH')) {
 
 class Admin
 {
-    const OPTION_KEY = 'pfu_settings';
+    const OPTION_KEY = 'privfileup_settings';
+    const SIDECAR_CLEANUP_OPTION = 'privfileup_sidecar_cleanup_121_v2';
+    const ORPHAN_DIRECTORY = '.privfileup-orphans!';
 
     /**
      * Initialize admin hooks
@@ -17,23 +19,25 @@ class Admin
     {
         add_action('admin_menu', [__CLASS__, 'register_menu']);
         add_action('admin_init', [__CLASS__, 'register_settings']);
-        add_action('admin_post_pfu_delete_file', [__CLASS__, 'handle_delete_file']);
-        add_action('admin_post_pfu_safe_deactivate_handle', [__CLASS__, 'handle_safe_deactivate']);
+        add_action('admin_init', [__CLASS__, 'add_privacy_policy_content']);
+        add_action('admin_init', [__CLASS__, 'maybe_remove_legacy_sidecars']);
+        add_action('admin_post_privfileup_delete_file', [__CLASS__, 'handle_delete_file']);
+        add_action('admin_post_privfileup_safe_deactivate_handle', [__CLASS__, 'handle_safe_deactivate']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_styles']);
         add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_library_uploader']);
 
         // User deletion hooks (single site)
         add_action('load-users.php', [__CLASS__, 'maybe_hook_users_notice']);
-        add_action('delete_user_form', [__CLASS__, 'delete_user_form'], 10, 1);
+        add_action('delete_user_form', [__CLASS__, 'delete_user_form'], 10, 2);
         add_action('delete_user', [__CLASS__, 'handle_delete_user'], 10, 1);
 
         // Multisite user deletion
-        add_action('wpmu_delete_user', [__CLASS__, 'handle_delete_user'], 10, 1);
+        add_action('wpmu_delete_user', [__CLASS__, 'handle_network_delete_user'], 10, 1);
 
-        // Rename handler (admin-post.php?action=pfu_rename_file)
-        add_action('admin_post_pfu_rename_file', [__CLASS__, 'handle_rename_file']);
+        // Rename handler (admin-post.php?action=privfileup_rename_file)
+        add_action('admin_post_privfileup_rename_file', [__CLASS__, 'handle_rename_file']);
 
-        // Notice sulla pagina Library
+        // Notice on the Library page
         add_action('admin_notices', [__CLASS__, 'library_notices']);
     }
 
@@ -43,20 +47,20 @@ class Admin
     public static function enqueue_admin_styles(string $hook): void
     {
         // Only load on our plugin pages
-        if (strpos($hook, 'pfu-') === false && strpos($hook, 'private-uploader') === false) {
+        if (strpos($hook, 'privfileup-') === false) {
             return;
         }
 
-        // Registra un handle vuoto e inietta CSS inline su quello
-        wp_register_style('pfu-admin', false, [], PFU_VERSION);
-        wp_enqueue_style('pfu-admin');
-        wp_add_inline_style('pfu-admin', self::get_admin_css());
+        // Register an empty handle and inject inline CSS on it
+        wp_register_style('privfileup-admin', false, [], PRIVFILEUP_VERSION);
+        wp_enqueue_style('privfileup-admin');
+        wp_add_inline_style('privfileup-admin', self::get_admin_css());
     }
 
     public static function enqueue_library_uploader(string $hook): void
     {
-        // carica solo nella pagina Library del plugin
-        if (strpos($hook, 'pfu-library') === false) {
+        // Only load on the plugin Library page
+        if (strpos($hook, 'privfileup-library') === false) {
             return;
         }
 
@@ -64,17 +68,17 @@ class Admin
         wp_enqueue_script('plupload-all');
         wp_enqueue_script('jquery');
 
-        // Handle “vuoto” su cui iniettare inline script
-        wp_register_script('pfu-library-uploader', false, ['plupload-all', 'jquery'], defined('PFU_VERSION') ? PFU_VERSION : '1.0.0', true);
-        wp_enqueue_script('pfu-library-uploader');
+        // Empty handle to inject inline script onto
+        wp_register_script('privfileup-library-uploader', false, ['plupload-all', 'jquery'], defined('PRIVFILEUP_VERSION') ? PRIVFILEUP_VERSION : '1.0.0', true);
+        wp_enqueue_script('privfileup-library-uploader');
 
-        // Dati per l’upload via REST
-        $policy_max = \PFU\Plugin::effective_max_upload_bytes();
-        $rest_url   = rest_url(\PFU\Plugin::REST_NS . '/upload');
+        // Data for upload via REST
+        $policy_max = \PRIVFILEUP\Plugin::effective_max_upload_bytes();
+        $rest_url   = rest_url(\PRIVFILEUP\Plugin::REST_NS . '/upload');
         $nonce      = wp_create_nonce('wp_rest');
 
-        wp_add_inline_script('pfu-library-uploader', sprintf(
-            'window.PFU_UPLOADER = %s;',
+        wp_add_inline_script('privfileup-library-uploader', sprintf(
+            'window.PRIVFILEUP_UPLOADER = %s;',
             wp_json_encode([
                 'restUrl'   => $rest_url,
                 'restNonce' => $nonce,
@@ -90,16 +94,16 @@ class Admin
         ));
 
         // Stili minimi
-        wp_register_style('pfu-admin-uploader', false, [], PFU_VERSION);
-        wp_enqueue_style('pfu-admin-uploader');
-        wp_add_inline_style('pfu-admin-uploader', '
-            .pfu-uploader { margin:16px 0; padding:16px; border:2px dashed #ccd0d4; border-radius:8px; background:#fff; text-align:center; }
-            .pfu-uploader.dragover { background:#f7fbff; border-color:#72aee6; }
-            .pfu-uploader .pfu-row { display:inline-flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; }
-            .pfu-uploader-progress { margin-top:10px; font-size:12px; color:#555; display:none; }
-            .pfu-uploader-list { margin-top:10px; text-align:left; max-width:760px; margin-inline:auto; }
-            .pfu-uploader-item { display:flex; justify-content:space-between; padding:6px 8px; background:#f7f7f7; border-radius:4px; margin-top:6px; }
-            .pfu-uploader-item .pfu-status { margin-left:12px; }
+        wp_register_style('privfileup-admin-uploader', false, [], PRIVFILEUP_VERSION);
+        wp_enqueue_style('privfileup-admin-uploader');
+        wp_add_inline_style('privfileup-admin-uploader', '
+            .privfileup-uploader { margin:16px 0; padding:16px; border:2px dashed #ccd0d4; border-radius:8px; background:#fff; text-align:center; }
+            .privfileup-uploader.dragover { background:#f7fbff; border-color:#72aee6; }
+            .privfileup-uploader .privfileup-row { display:inline-flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:center; }
+            .privfileup-uploader-progress { margin-top:10px; font-size:12px; color:#555; display:none; }
+            .privfileup-uploader-list { margin-top:10px; text-align:left; max-width:760px; margin-inline:auto; }
+            .privfileup-uploader-item { display:flex; justify-content:space-between; padding:6px 8px; background:#f7f7f7; border-radius:4px; margin-top:6px; }
+            .privfileup-uploader-item .privfileup-status { margin-left:12px; }
         ');
     }
 
@@ -112,18 +116,18 @@ class Admin
     private static function get_admin_css(): string
     {
         return '
-            .pfu-cards { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
-            .pfu-card { background: #fff; border: 1px solid #e3e3e3; border-radius: 8px; padding: 16px; min-width: 260px; }
-            .pfu-card h2 { margin: 0 0 8px; font-size: 16px; }
-            .pfu-list { margin: 8px 0 0 18px; }
-            .pfu-muted { color: #666; }
-            .pfu-actions { margin-top: 16px; }
-            .pfu-server-limits { margin-top: 16px; background: #fff; border: 1px solid #e3e3e3; border-radius: 8px; padding: 16px; }
-            .pfu-warning-box { margin-top: 8px; padding: 8px 12px; border-left: 4px solid #d63638; background: #fff3f3; }
-            .column-pfu-preview { width: 60px; }
-            .pfu-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; background: #f3f3f3; display: block; }
-            .pfu-icon { width: 36px; height: 36px; opacity: .85; display: block; margin: 6px auto; }
-            .pfu-code-block { background: #f7f7f7; padding: 8px; overflow: auto; }
+            .privfileup-cards { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0; }
+            .privfileup-card { background: #fff; border: 1px solid #e3e3e3; border-radius: 8px; padding: 16px; min-width: 260px; }
+            .privfileup-card h2 { margin: 0 0 8px; font-size: 16px; }
+            .privfileup-list { margin: 8px 0 0 18px; }
+            .privfileup-muted { color: #666; }
+            .privfileup-actions { margin-top: 16px; }
+            .privfileup-server-limits { margin-top: 16px; background: #fff; border: 1px solid #e3e3e3; border-radius: 8px; padding: 16px; }
+            .privfileup-warning-box { margin-top: 8px; padding: 8px 12px; border-left: 4px solid #d63638; background: #fff3f3; }
+            .column-privfileup-preview { width: 60px; }
+            .privfileup-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 4px; background: #f3f3f3; display: block; }
+            .privfileup-icon { width: 36px; height: 36px; opacity: .85; display: block; margin: 6px auto; }
+            .privfileup-code-block { background: #f7f7f7; padding: 8px; overflow: auto; }
         ';
     }
 
@@ -139,7 +143,7 @@ class Admin
             __('Private Uploader', 'private-file-uploader'),
             __('Private Uploader', 'private-file-uploader'),
             $cap_library,
-            'pfu-overview',
+            'privfileup-overview',
             [__CLASS__, 'render_overview_page'],
             'dashicons-upload',
             27
@@ -147,47 +151,47 @@ class Admin
 
         // Sub: Overview
         add_submenu_page(
-            'pfu-overview',
+            'privfileup-overview',
             __('Overview', 'private-file-uploader'),
             __('Overview', 'private-file-uploader'),
             $cap_library,
-            'pfu-overview',
+            'privfileup-overview',
             [__CLASS__, 'render_overview_page']
         );
 
         // Sub: Library
         add_submenu_page(
-            'pfu-overview',
+            'privfileup-overview',
             __('Library', 'private-file-uploader'),
             __('Library', 'private-file-uploader'),
             $cap_library,
-            'pfu-library',
+            'privfileup-library',
             [__CLASS__, 'render_library_page']
         );
 
         // Sub: Settings
         add_submenu_page(
-            'pfu-overview',
+            'privfileup-overview',
             __('Settings', 'private-file-uploader'),
             __('Settings', 'private-file-uploader'),
             $cap_settings,
-            'pfu-settings',
+            'privfileup-settings',
             [__CLASS__, 'render_settings_page']
         );
 
         // Hidden page: Safe Deactivate
         add_submenu_page(
-            'pfu-overview',
+            'privfileup-overview',
             __('Safe Deactivate', 'private-file-uploader'),
             __('Safe Deactivate', 'private-file-uploader'),
             'manage_options',
-            'pfu-safe-deactivate',
+            'privfileup-safe-deactivate',
             [__CLASS__, 'render_safe_deactivate_page']
         );
 
         // Hide from sidebar but keep it routable
         add_action('admin_head', function () {
-            remove_submenu_page('pfu-overview', 'pfu-safe-deactivate');
+            remove_submenu_page('privfileup-overview', 'privfileup-safe-deactivate');
         });
     }
 
@@ -197,33 +201,110 @@ class Admin
     public static function register_settings(): void
     {
         register_setting(
-            'pfu_settings_group',
+            'privfileup_settings_group',
             self::OPTION_KEY,
             ['sanitize_callback' => [__CLASS__, 'sanitize_settings']]
         );
 
         add_settings_section(
-            'pfu_main',
+            'privfileup_main',
             __('Upload policy', 'private-file-uploader'),
             [__CLASS__, 'render_settings_section'],
-            'pfu-settings'
+            'privfileup-settings'
         );
 
         add_settings_field(
-            'max_upload_bytes',
+            'privfileup_max_upload_bytes',
             __('Max upload size (bytes)', 'private-file-uploader'),
-            [__CLASS__, 'render_field_max_upload_bytes'],
-            'pfu-settings',
-            'pfu_main'
+            [__CLASS__, 'render_field_privfileup_max_upload_bytes'],
+            'privfileup-settings',
+            'privfileup_main'
         );
 
         add_settings_field(
-            'allowed_mime_types',
+            'privfileup_allowed_mime_types',
             __('Allowed MIME types (one per line)', 'private-file-uploader'),
-            [__CLASS__, 'render_field_allowed_mime_types'],
-            'pfu-settings',
-            'pfu_main'
+            [__CLASS__, 'render_field_privfileup_allowed_mime_types'],
+            'privfileup-settings',
+            'privfileup_main'
         );
+    }
+
+    /**
+     * Add suggested text to WordPress' Privacy Policy Guide.
+     */
+    public static function add_privacy_policy_content(): void
+    {
+        if (!function_exists('wp_add_privacy_policy_content')) {
+            return;
+        }
+
+        $content  = '<p>' . esc_html__('This plugin stores files uploaded by registered users in per-user folders inside the WordPress uploads directory. The user login is used as part of the folder path.', 'private-file-uploader') . '</p>';
+        $content .= '<p>' . esc_html__('The plugin does not send files or personal data to external services and does not include telemetry. New uploads do not create request-metadata sidecars, and recognized legacy sidecars are removed during admin maintenance. Direct file URLs may be accessible to anyone who knows the URL, depending on the web server configuration.', 'private-file-uploader') . '</p>';
+        $content .= '<p>' . esc_html__('When an administrator deletes a user, the administrator can delete, reassign, or quarantine that user\'s files outside the reusable login path. A normal plugin uninstall preserves uploaded files unless they were removed first with Safe Deactivate.', 'private-file-uploader') . '</p>';
+
+        wp_add_privacy_policy_content(
+            __('Private File Uploader', 'private-file-uploader'),
+            wp_kses_post($content)
+        );
+    }
+
+    /**
+     * Remove recognized metadata sidecars written by older plugin versions.
+     */
+    public static function maybe_remove_legacy_sidecars(): void
+    {
+        if (get_option(self::SIDECAR_CLEANUP_OPTION, false)) {
+            return;
+        }
+
+        $root = Plugin::storage_root_base();
+        if (!is_dir($root)) {
+            update_option(self::SIDECAR_CLEANUP_OPTION, PRIVFILEUP_VERSION, false);
+            return;
+        }
+
+        $directories = scandir($root);
+        if (!is_array($directories)) {
+            return;
+        }
+
+        $failed = false;
+        foreach ($directories as $directory_name) {
+            if ($directory_name === '.' || $directory_name === '..') {
+                continue;
+            }
+
+            $directory = trailingslashit($root) . $directory_name;
+            if (
+                !is_dir($directory) ||
+                is_link($directory) ||
+                !Utils::is_path_within_base($root, $directory)
+            ) {
+                continue;
+            }
+
+            $files = scandir($directory);
+            if (!is_array($files)) {
+                $failed = true;
+                continue;
+            }
+
+            foreach ($files as $filename) {
+                $metadata_path = trailingslashit($directory) . $filename;
+                if (!Utils::is_legacy_metadata_sidecar($metadata_path)) {
+                    continue;
+                }
+
+                if (!Utils::delete_legacy_metadata_sidecar($metadata_path)) {
+                    $failed = true;
+                }
+            }
+        }
+
+        if (!$failed) {
+            update_option(self::SIDECAR_CLEANUP_OPTION, PRIVFILEUP_VERSION, false);
+        }
     }
 
     /**
@@ -244,19 +325,18 @@ class Admin
     public static function get_settings(): array
     {
         $opt = get_option(self::OPTION_KEY, []);
+        $opt = is_array($opt) ? $opt : [];
         $defaults = [
-            'max_upload_bytes'  => Plugin::DEFAULT_MAX_UPLOAD_BYTES,
-            'allowed_mime_types' => Plugin::DEFAULT_ALLOWED_MIME,
+            'privfileup_max_upload_bytes'  => Plugin::DEFAULT_MAX_UPLOAD_BYTES,
+            'privfileup_allowed_mime_types' => Plugin::DEFAULT_ALLOWED_MIME,
         ];
 
-        $opt['max_upload_bytes'] = isset($opt['max_upload_bytes']) ? (int) $opt['max_upload_bytes'] : $defaults['max_upload_bytes'];
+        $max = isset($opt['privfileup_max_upload_bytes']) ? absint($opt['privfileup_max_upload_bytes']) : 0;
+        $opt['privfileup_max_upload_bytes'] = $max > 0 ? $max : $defaults['privfileup_max_upload_bytes'];
 
-        $mime = $opt['allowed_mime_types'] ?? $defaults['allowed_mime_types'];
-        if (is_string($mime)) {
-            $mime = preg_split('/\R+/', $mime) ?: [];
-        }
-        $mime = array_values(array_unique(array_filter(array_map('strval', (array)$mime))));
-        $opt['allowed_mime_types'] = $mime ?: $defaults['allowed_mime_types'];
+        $mime = $opt['privfileup_allowed_mime_types'] ?? $defaults['privfileup_allowed_mime_types'];
+        $mime = self::sanitize_mime_list($mime);
+        $opt['privfileup_allowed_mime_types'] = $mime ?: $defaults['privfileup_allowed_mime_types'];
 
         return $opt + $defaults;
     }
@@ -269,43 +349,64 @@ class Admin
      */
     public static function sanitize_settings($input): array
     {
+        $input = is_array($input) ? $input : [];
         $out = [];
 
-        $max = isset($input['max_upload_bytes']) ? (int)$input['max_upload_bytes'] : 0;
+        $max = isset($input['privfileup_max_upload_bytes']) ? absint($input['privfileup_max_upload_bytes']) : 0;
         if ($max <= 0) {
             $max = Plugin::DEFAULT_MAX_UPLOAD_BYTES;
         }
-        $out['max_upload_bytes'] = $max;
+        $out['privfileup_max_upload_bytes'] = $max;
 
-        if (isset($input['allowed_mime_types'])) {
-            $raw = is_array($input['allowed_mime_types'])
-                ? $input['allowed_mime_types']
-                : preg_split('/\R+/', (string) $input['allowed_mime_types']);
-
-            $mime = array_values(
-                array_unique(
-                    array_filter(
-                        array_map('trim', (array)$raw)
-                    )
-                )
-            );
-
-            $out['allowed_mime_types'] = $mime;
+        if (isset($input['privfileup_allowed_mime_types'])) {
+            $out['privfileup_allowed_mime_types'] = self::sanitize_mime_list($input['privfileup_allowed_mime_types']);
         }
 
         return $out;
     }
 
     /**
+     * Sanitize a list of MIME types against WordPress' upload policy.
+     *
+     * @param mixed $value MIME array or newline-separated string.
+     * @return string[] Sanitized MIME list.
+     */
+    private static function sanitize_mime_list($value): array
+    {
+        if (is_string($value)) {
+            $value = preg_split('/\R+/', $value) ?: [];
+        }
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $core_mimes = array_values(\get_allowed_mime_types());
+        $result     = [];
+
+        foreach ($value as $mime) {
+            if (!is_scalar($mime)) {
+                continue;
+            }
+
+            $sanitized = sanitize_mime_type(wp_unslash(trim((string) $mime)));
+            if ($sanitized !== '' && in_array($sanitized, $core_mimes, true)) {
+                $result[] = $sanitized;
+            }
+        }
+
+        return array_values(array_unique($result));
+    }
+
+    /**
      * Render max upload bytes field
      */
-    public static function render_field_max_upload_bytes(): void
+    public static function render_field_privfileup_max_upload_bytes(): void
     {
         $opt = self::get_settings();
     ?>
         <input type="number"
-            name="<?php echo esc_attr(self::OPTION_KEY); ?>[max_upload_bytes]"
-            value="<?php echo esc_attr($opt['max_upload_bytes']); ?>"
+            name="<?php echo esc_attr(self::OPTION_KEY); ?>[privfileup_max_upload_bytes]"
+            value="<?php echo esc_attr($opt['privfileup_max_upload_bytes']); ?>"
             min="1"
             step="1"
             class="regular-text" />
@@ -318,12 +419,12 @@ class Admin
     /**
      * Render allowed MIME types field
      */
-    public static function render_field_allowed_mime_types(): void
+    public static function render_field_privfileup_allowed_mime_types(): void
     {
         $opt = self::get_settings();
-        $val = implode("\n", (array)$opt['allowed_mime_types']);
+        $val = implode("\n", (array)$opt['privfileup_allowed_mime_types']);
     ?>
-        <textarea name="<?php echo esc_attr(self::OPTION_KEY); ?>[allowed_mime_types]"
+        <textarea name="<?php echo esc_attr(self::OPTION_KEY); ?>[privfileup_allowed_mime_types]"
             rows="6"
             class="large-text code"><?php echo esc_textarea($val); ?></textarea>
         <p class="description">
@@ -337,15 +438,15 @@ class Admin
      */
     public static function render_safe_deactivate_page(): void
     {
-        if (!current_user_can('manage_options')) {
-            wp_die(esc_html__('You do not have permission to access this page.', 'private-file-uploader'));
+        if (!self::can_safe_deactivate()) {
+            wp_die(esc_html__('Safe Deactivate requires permission to deactivate this plugin on this site. Network-active plugins must be deactivated from Network Admin.', 'private-file-uploader'), '', ['response' => 403]);
         }
 
         $root = Plugin::storage_root_base();
         $htaccess_path = trailingslashit($root) . '.htaccess';
         $web_config_path = trailingslashit($root) . 'web.config';
         $exists = is_dir($root);
-        $nonce = wp_create_nonce('pfu_safe_deactivate');
+        $nonce = wp_create_nonce('privfileup_safe_deactivate');
 
     ?>
         <div class="wrap">
@@ -365,7 +466,7 @@ class Admin
             <p><?php esc_html_e('Choose what to do with stored files before deactivating the plugin.', 'private-file-uploader'); ?></p>
 
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <input type="hidden" name="action" value="pfu_safe_deactivate_handle" />
+                <input type="hidden" name="action" value="privfileup_safe_deactivate_handle" />
                 <input type="hidden" name="_wpnonce" value="<?php echo esc_attr($nonce); ?>" />
 
                 <table class="form-table">
@@ -374,7 +475,7 @@ class Admin
                             <th scope="row"><?php esc_html_e('Delete all files', 'private-file-uploader'); ?></th>
                             <td>
                                 <label>
-                                    <input type="radio" name="pfu_mode" value="delete" />
+                                    <input type="radio" name="privfileup_mode" value="delete" />
                                     <?php esc_html_e('Delete ALL user files from disk, then deactivate the plugin.', 'private-file-uploader'); ?>
                                 </label>
                                 <p class="description">
@@ -387,7 +488,7 @@ class Admin
                             <th scope="row"><?php esc_html_e('Keep files (block access)', 'private-file-uploader'); ?></th>
                             <td>
                                 <label>
-                                    <input type="radio" name="pfu_mode" value="deny" checked />
+                                    <input type="radio" name="privfileup_mode" value="deny" checked />
                                     <?php esc_html_e('Keep files on disk and block direct web access where possible.', 'private-file-uploader'); ?>
                                 </label>
                                 <p class="description">
@@ -422,14 +523,14 @@ class Admin
     {
     ?>
         <h4><?php esc_html_e('Apache (.htaccess)', 'private-file-uploader'); ?></h4>
-        <pre class="pfu-code-block"><code><?php echo esc_html("Options -Indexes\nRequire all denied"); ?></code></pre>
+        <pre class="privfileup-code-block"><code><?php echo esc_html("Options -Indexes\nRequire all denied"); ?></code></pre>
         <p class="description">
             <?php esc_html_e('Target:', 'private-file-uploader'); ?>
             <code><?php echo esc_html($htaccess_path); ?></code>
         </p>
 
         <h4><?php esc_html_e('IIS (web.config)', 'private-file-uploader'); ?></h4>
-        <pre class="pfu-code-block"><code><?php
+        <pre class="privfileup-code-block"><code><?php
                                             echo esc_html('<configuration>
   <system.webServer>
     <security>
@@ -448,7 +549,7 @@ class Admin
         </p>
 
         <h4><?php esc_html_e('Nginx (add to server config)', 'private-file-uploader'); ?></h4>
-        <pre class="pfu-code-block"><code><?php
+        <pre class="privfileup-code-block"><code><?php
                                             $nginx_location = trailingslashit(str_replace(ABSPATH, '/', $root));
                                             echo esc_html("location ^~ {$nginx_location} {\n    deny all;\n}");
                                             ?></code></pre>
@@ -471,21 +572,21 @@ class Admin
         <div class="wrap">
             <h1><?php esc_html_e('Private Uploader – Overview', 'private-file-uploader'); ?></h1>
 
-            <p><?php esc_html_e('This plugin lets you upload files to your private area on this site. The rules below apply to uploads performed via the mobile app or REST API.', 'private-file-uploader'); ?></p>
+            <p><?php esc_html_e('This plugin provides a per-user upload area. REST operations are authenticated, while direct file URLs may be accessible to anyone who knows the URL. The rules below apply to uploads performed via the mobile app or REST API.', 'private-file-uploader'); ?></p>
 
-            <div class="pfu-cards">
+            <div class="privfileup-cards">
                 <?php self::render_max_size_card($max_bytes); ?>
                 <?php self::render_mime_types_card($mimes); ?>
             </div>
 
             <?php self::render_server_limits_card(); ?>
 
-            <div class="pfu-actions">
-                <a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=pfu-library')); ?>">
+            <div class="privfileup-actions">
+                <a class="button button-primary" href="<?php echo esc_url(admin_url('admin.php?page=privfileup-library')); ?>">
                     <?php esc_html_e('Open your Library', 'private-file-uploader'); ?>
                 </a>
                 <?php if (current_user_can('manage_options')): ?>
-                    <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=pfu-settings')); ?>">
+                    <a class="button" href="<?php echo esc_url(admin_url('admin.php?page=privfileup-settings')); ?>">
                         <?php esc_html_e('Settings', 'private-file-uploader'); ?>
                     </a>
                 <?php endif; ?>
@@ -502,13 +603,13 @@ class Admin
     private static function render_max_size_card(int $max_bytes): void
     {
     ?>
-        <div class="pfu-card">
+        <div class="privfileup-card">
             <h2><?php esc_html_e('Max upload size', 'private-file-uploader'); ?></h2>
             <p>
                 <strong><?php echo esc_html(Utils::human_bytes($max_bytes)); ?></strong>
-                <span class="pfu-muted">(<?php echo esc_html(number_format($max_bytes)); ?> bytes)</span>
+                <span class="privfileup-muted">(<?php echo esc_html(number_format($max_bytes)); ?> bytes)</span>
             </p>
-            <p class="pfu-muted">
+            <p class="privfileup-muted">
                 <?php esc_html_e('Requests exceeding this limit will be rejected.', 'private-file-uploader'); ?>
             </p>
         </div>
@@ -523,20 +624,20 @@ class Admin
     private static function render_mime_types_card(array $mimes): void
     {
     ?>
-        <div class="pfu-card">
+        <div class="privfileup-card">
             <h2><?php esc_html_e('Allowed MIME types', 'private-file-uploader'); ?></h2>
             <?php if (empty($mimes)): ?>
-                <p class="pfu-muted">
+                <p class="privfileup-muted">
                     <?php esc_html_e('No MIME types configured.', 'private-file-uploader'); ?>
                 </p>
             <?php else: ?>
-                <ul class="pfu-list">
+                <ul class="privfileup-list">
                     <?php foreach ($mimes as $mime): ?>
                         <li><code><?php echo esc_html($mime); ?></code></li>
                     <?php endforeach; ?>
                 </ul>
             <?php endif; ?>
-            <p class="pfu-muted">
+            <p class="privfileup-muted">
                 <?php esc_html_e('Uploads with unsupported types will be rejected.', 'private-file-uploader'); ?>
             </p>
         </div>
@@ -564,7 +665,7 @@ class Admin
         }
 
     ?>
-        <div class="pfu-server-limits">
+        <div class="privfileup-server-limits">
             <h2 style="margin-top:0"><?php esc_html_e('Server limits (PHP)', 'private-file-uploader'); ?></h2>
 
             <table class="widefat striped" style="margin-top:8px">
@@ -573,21 +674,21 @@ class Admin
                         <td><?php esc_html_e('upload_max_filesize', 'private-file-uploader'); ?></td>
                         <td>
                             <code><?php echo esc_html($up_raw); ?></code>
-                            <span class="pfu-muted">(<?php echo esc_html($up_human); ?>)</span>
+                            <span class="privfileup-muted">(<?php echo esc_html($up_human); ?>)</span>
                         </td>
                     </tr>
                     <tr>
                         <td><?php esc_html_e('post_max_size', 'private-file-uploader'); ?></td>
                         <td>
                             <code><?php echo esc_html($post_raw); ?></code>
-                            <span class="pfu-muted">(<?php echo esc_html($post_human); ?>)</span>
+                            <span class="privfileup-muted">(<?php echo esc_html($post_human); ?>)</span>
                         </td>
                     </tr>
                     <tr>
                         <td><?php esc_html_e('memory_limit', 'private-file-uploader'); ?></td>
                         <td>
                             <code><?php echo esc_html($mem_raw); ?></code>
-                            <span class="pfu-muted">(<?php echo esc_html($mem_human); ?>)</span>
+                            <span class="privfileup-muted">(<?php echo esc_html($mem_human); ?>)</span>
                         </td>
                     </tr>
                     <tr>
@@ -598,18 +699,18 @@ class Admin
                         <td><?php esc_html_e('max_execution_time', 'private-file-uploader'); ?></td>
                         <td>
                             <code><?php echo esc_html((string)$exec_time); ?></code>
-                            <span class="pfu-muted"><?php esc_html_e('seconds', 'private-file-uploader'); ?></span>
+                            <span class="privfileup-muted"><?php esc_html_e('seconds', 'private-file-uploader'); ?></span>
                         </td>
                     </tr>
                 </tbody>
             </table>
 
-            <p class="pfu-muted" style="margin-top:8px">
+            <p class="privfileup-muted" style="margin-top:8px">
                 <?php esc_html_e('Note: PHP/server limits must also allow the requested size. If uploads fail for large files, raise both upload_max_filesize and post_max_size (and check web server/proxy limits).', 'private-file-uploader'); ?>
             </p>
 
             <?php if (!empty($warnings)): ?>
-                <div class="pfu-warning-box">
+                <div class="privfileup-warning-box">
                     <strong><?php esc_html_e('Warning:', 'private-file-uploader'); ?></strong>
                     <?php esc_html_e('Your PHP limits are below the plugin policy. Increase the following:', 'private-file-uploader'); ?>
                     <code><?php echo esc_html(implode(', ', $warnings)); ?></code>
@@ -634,20 +735,23 @@ class Admin
 
         $user = wp_get_current_user();
         $base = Plugin::get_user_base($user);
+        if (is_wp_error($base)) {
+            wp_die(esc_html($base->get_error_message()), '', ['response' => 403]);
+        }
         $files = self::get_user_files($base['path'], $base['url']);
 
     ?>
         <div class="wrap">
             <h1><?php esc_html_e('Your uploads', 'private-file-uploader'); ?></h1>
-            <div id="pfu-uploader" class="pfu-uploader">
-                <div class="pfu-row">
+            <div id="privfileup-uploader" class="privfileup-uploader">
+                <div class="privfileup-row">
                     <span><?php echo esc_html(__('Drop files here or', 'private-file-uploader')); ?></span>
-                    <button id="pfu-pick" type="button" class="button button-primary">
+                    <button id="privfileup-pick" type="button" class="button button-primary">
                         <?php echo esc_html(__('Choose files', 'private-file-uploader')); ?>
                     </button>
                 </div>
-                <div class="pfu-uploader-progress" id="pfu-progress"></div>
-                <div class="pfu-uploader-list" id="pfu-list"></div>
+                <div class="privfileup-uploader-progress" id="privfileup-progress"></div>
+                <div class="privfileup-uploader-list" id="privfileup-list"></div>
             </div>
             <?php if (empty($files)): ?>
                 <p><?php esc_html_e('You have not uploaded any files yet.', 'private-file-uploader'); ?></p>
@@ -657,17 +761,17 @@ class Admin
         </div>
         <script type="text/javascript">
             jQuery(function($) {
-                if (!window.PFU_UPLOADER) return;
+                if (!window.PRIVFILEUP_UPLOADER) return;
 
-                var cfg = window.PFU_UPLOADER;
-                var $box = $('#pfu-uploader');
-                var $progress = $('#pfu-progress');
-                var $list = $('#pfu-list');
+                var cfg = window.PRIVFILEUP_UPLOADER;
+                var $box = $('#privfileup-uploader');
+                var $progress = $('#privfileup-progress');
+                var $list = $('#privfileup-list');
 
                 var uploader = new plupload.Uploader({
-                    browse_button: 'pfu-pick',
-                    container: 'pfu-uploader',
-                    drop_element: 'pfu-uploader',
+                    browse_button: 'privfileup-pick',
+                    container: 'privfileup-uploader',
+                    drop_element: 'privfileup-uploader',
                     url: cfg.restUrl,
                     runtimes: 'html5,html4',
                     multi_selection: true,
@@ -683,7 +787,7 @@ class Admin
                 });
 
                 uploader.bind('Init', function() {
-                    var el = document.getElementById('pfu-uploader');
+                    var el = document.getElementById('privfileup-uploader');
                     el.addEventListener('dragover', function() {
                         $box.addClass('dragover');
                     });
@@ -699,12 +803,12 @@ class Admin
                     $progress.show().text(cfg.strings.uploading);
                     plupload.each(files, function(file) {
                         var row = $('<div/>', {
-                                'class': 'pfu-uploader-item',
-                                id: 'pfu-' + file.id
+                                'class': 'privfileup-uploader-item',
+                                id: 'privfileup-' + file.id
                             })
                             .append($('<span/>').text(file.name + ' (' + plupload.formatSize(file.size) + ')'))
                             .append($('<span/>', {
-                                'class': 'pfu-status',
+                                'class': 'privfileup-status',
                                 text: '0%'
                             }));
                         $list.append(row);
@@ -714,15 +818,15 @@ class Admin
                 });
 
                 uploader.bind('UploadProgress', function(up, file) {
-                    $('#pfu-' + file.id + ' .pfu-status').text(file.percent + '%');
+                    $('#privfileup-' + file.id + ' .privfileup-status').text(file.percent + '%');
                 });
 
                 uploader.bind('FileUploaded', function(up, file, info) {
                     try {
                         var res = JSON.parse(info.response || '{}');
-                        $('#pfu-' + file.id + ' .pfu-status').text(res && res.ok ? cfg.strings.done : cfg.strings.failed);
+                        $('#privfileup-' + file.id + ' .privfileup-status').text(res && res.ok ? cfg.strings.done : cfg.strings.failed);
                     } catch (e) {
-                        $('#pfu-' + file.id + ' .pfu-status').text(cfg.strings.failed);
+                        $('#privfileup-' + file.id + ' .privfileup-status').text(cfg.strings.failed);
                     }
                 });
 
@@ -730,16 +834,16 @@ class Admin
                     var msg = err && err.message ? err.message : 'Error';
                     var fileId = err.file && err.file.id ? err.file.id : null;
                     if (fileId) {
-                        $('#pfu-' + fileId + ' .pfu-status').text(cfg.strings.failed + ' – ' + msg);
+                        $('#privfileup-' + fileId + ' .privfileup-status').text(cfg.strings.failed + ' – ' + msg);
                     } else {
                         $list.append($('<div/>', {
-                            'class': 'pfu-uploader-item'
+                            'class': 'privfileup-uploader-item'
                         }).text(cfg.strings.failed + ' – ' + msg));
                     }
                 });
 
                 uploader.bind('UploadComplete', function() {
-                    location.reload(); // aggiorna la tabella
+                    location.reload(); // refresh the table
                 });
 
                 uploader.init();
@@ -762,14 +866,14 @@ class Admin
             return [];
         }
 
-        $files = [];
-        $dh = @opendir($dir);
-
-        if (!$dh) {
+        $entries = @scandir($dir);
+        if ($entries === false) {
             return [];
         }
 
-        while (false !== ($entry = readdir($dh))) {
+        $files = [];
+
+        foreach ($entries as $entry) {
             // Skip special entries
             if (in_array($entry, ['.', '..', 'index.html'], true) || strpos($entry, "\0") !== false) {
                 continue;
@@ -780,7 +884,7 @@ class Admin
                 continue;
             }
 
-            // salta i file di thumbnail
+            // Skip thumbnail files
             if (Utils::is_thumb_filename($entry)) {
                 continue;
             }
@@ -805,8 +909,6 @@ class Admin
             ];
         }
 
-        closedir($dh);
-
         // Sort by modification time (newest first)
         usort($files, fn($a, $b) => $b['mtime'] <=> $a['mtime']);
 
@@ -824,7 +926,7 @@ class Admin
         <table class="widefat fixed striped">
             <thead>
                 <tr>
-                    <th class="column-pfu-preview"><?php esc_html_e('Preview', 'private-file-uploader'); ?></th>
+                    <th class="column-privfileup-preview"><?php esc_html_e('Preview', 'private-file-uploader'); ?></th>
                     <th><?php esc_html_e('File', 'private-file-uploader'); ?></th>
                     <th><?php esc_html_e('Size', 'private-file-uploader'); ?></th>
                     <th><?php esc_html_e('Modified', 'private-file-uploader'); ?></th>
@@ -852,25 +954,25 @@ class Admin
         $url       = $file['url'];
         $is_image  = strpos($file['mime'], 'image/') === 0;
 
-        // Prova a costruire l'URL della thumb affiancata (nome + "-pfu-thumb")
+        // Try to build the adjacent thumbnail URL (name + "-privfileup-thumb").
         $thumb_url = null;
         if ($is_image) {
-            // es: foto.jpg -> foto-pfu-thumb.jpg
-            $thumb_basename = Utils::append_suffix($name, '-pfu-thumb');
+            // e.g. photo.jpg -> photo-privfileup-thumb.jpg.
+            $thumb_basename = Utils::append_suffix($name, '-privfileup-thumb');
             $thumb_url      = Utils::path_replace_basename($url, $thumb_basename);
         }
 
-        $nonce      = wp_create_nonce('pfu_del_' . $name);
-        $delete_url = admin_url('admin-post.php?action=pfu_delete_file&file=' . rawurlencode($name) . '&_wpnonce=' . $nonce);
+        $nonce      = wp_create_nonce('privfileup_del_' . $name);
+        $delete_url = admin_url('admin-post.php?action=privfileup_delete_file&file=' . rawurlencode($name) . '&_wpnonce=' . $nonce);
 
         $rename_action_url  = admin_url('admin-post.php');
     ?>
         <tr>
-            <td class="column-pfu-preview">
+            <td class="column-privfileup-preview">
                 <?php if ($is_image): ?>
                     <a href="<?php echo esc_url($url); ?>" target="_blank" rel="noopener">
                         <img
-                            class="pfu-thumb"
+                            class="privfileup-thumb"
                             src="<?php echo esc_url($thumb_url ?: $url); ?>"
                             data-fallback="<?php echo esc_url($url); ?>"
                             onerror="if(this.dataset.fallback){this.onerror=null;this.src=this.dataset.fallback;}"
@@ -881,7 +983,7 @@ class Admin
                     <?php
                     $icon = wp_mime_type_icon($file['mime']) ?: wp_mime_type_icon('application/octet-stream');
                     ?>
-                    <img class="pfu-icon" src="<?php echo esc_url($icon); ?>" alt="" loading="lazy" />
+                    <img class="privfileup-icon" src="<?php echo esc_url($icon); ?>" alt="" loading="lazy" />
                 <?php endif; ?>
             </td>
             <td>
@@ -898,12 +1000,12 @@ class Admin
                     onclick="return confirm('<?php echo esc_js(__('Delete this file?', 'private-file-uploader')); ?>');">
                     <?php esc_html_e('Delete', 'private-file-uploader'); ?>
                 </a>
-                <details class="pfu-rename" style="display:inline-block;margin-left:8px;">
+                <details class="privfileup-rename" style="display:inline-block;margin-left:8px;">
                     <summary><?php esc_html_e('Rename', 'private-file-uploader'); ?></summary>
                     <form method="post" action="<?php echo esc_url($rename_action_url); ?>" style="margin-top:6px;display:flex;gap:6px;align-items:center;">
-                        <input type="hidden" name="action" value="pfu_rename_file" />
+                        <input type="hidden" name="action" value="privfileup_rename_file" />
                         <input type="hidden" name="file" value="<?php echo esc_attr($name); ?>" />
-                        <?php wp_nonce_field('pfu_rename_' . $name, '_wpnonce', true); ?>
+                        <?php wp_nonce_field('privfileup_rename_' . $name, '_wpnonce', true); ?>
                         <input type="text"
                             name="new_name"
                             value="<?php echo esc_attr($name); ?>"
@@ -923,17 +1025,18 @@ class Admin
      */
     public static function handle_delete_file(): void
     {
-        if (!is_user_logged_in()) {
-            wp_die(esc_html__('You must be logged in.', 'private-file-uploader'));
+        if (!current_user_can('upload_files')) {
+            wp_die(esc_html__('Insufficient permissions', 'private-file-uploader'), '', ['response' => 403]);
         }
 
         $user = wp_get_current_user();
-        $file  = isset($_GET['file']) ? sanitize_text_field(wp_unslash($_GET['file'])) : '';
-        if ($file === '') {
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Strict basename validation preserves the exact stored filename.
+        $file = Plugin::sanitize_user_filename(isset($_GET['file']) ? wp_unslash($_GET['file']) : '');
+        if (is_wp_error($file)) {
             wp_die(esc_html__('Invalid request.', 'private-file-uploader'));
         }
 
-        check_admin_referer('pfu_del_' . $file);
+        check_admin_referer('privfileup_del_' . $file);
 
         $base_file = Plugin::sanitize_user_filename($file);
         if (is_wp_error($base_file)) {
@@ -946,6 +1049,9 @@ class Admin
         }
 
         $paths = Plugin::get_user_base($user);
+        if (is_wp_error($paths)) {
+            wp_die(esc_html($paths->get_error_message()), '', ['response' => 403]);
+        }
         $abs = $paths['path'] . DIRECTORY_SEPARATOR . $base_file;
 
         if (!file_exists($abs) || !is_file($abs)) {
@@ -953,7 +1059,7 @@ class Admin
                 'user' => $user->user_login,
                 'file' => $base_file
             ]);
-            wp_safe_redirect(admin_url('admin.php?page=pfu-library&pfu_msg=notfound'));
+            wp_safe_redirect(admin_url('admin.php?page=privfileup-library&privfileup_msg=notfound'));
             exit;
         }
 
@@ -981,26 +1087,53 @@ class Admin
         }
 
         $msg = $ok ? 'deleted' : 'delerror';
-        wp_safe_redirect(admin_url('admin.php?page=pfu-library&pfu_msg=' . $msg));
+        wp_safe_redirect(admin_url('admin.php?page=privfileup-library&privfileup_msg=' . $msg));
         exit;
     }
 
-    /**
-     * Handle safe deactivation
-     */
-    public static function handle_safe_deactivate(): void
+    /** Whether the current user may safely deactivate this site activation. */
+    public static function can_safe_deactivate(): bool
     {
-        if (!current_user_can('manage_options')) {
-            wp_die(esc_html__('You do not have permission.', 'private-file-uploader'));
+        if (!function_exists('is_plugin_active_for_network')) {
+            require_once ABSPATH . 'wp-admin/includes/plugin.php';
         }
 
-        check_admin_referer('pfu_safe_deactivate');
+        $plugin = plugin_basename(PRIVFILEUP_PLUGIN_FILE);
+        return current_user_can('manage_options') &&
+            current_user_can('deactivate_plugin', $plugin) &&
+            !is_plugin_active_for_network($plugin);
+    }
 
-        $mode = isset($_POST['pfu_mode'])
-            ? sanitize_key(wp_unslash($_POST['pfu_mode']))
+    /** Handle deactivation of the current site's plugin and storage only. */
+    public static function handle_safe_deactivate(): void
+    {
+        if (!self::can_safe_deactivate()) {
+            wp_die(esc_html__('Safe Deactivate requires permission to deactivate this plugin on this site. Network-active plugins must be deactivated from Network Admin.', 'private-file-uploader'), '', ['response' => 403]);
+        }
+
+        check_admin_referer('privfileup_safe_deactivate');
+
+        $mode = isset($_POST['privfileup_mode'])
+            ? sanitize_key(wp_unslash($_POST['privfileup_mode']))
             : 'deny';
 
+        if (!in_array($mode, ['delete', 'deny'], true)) {
+            wp_die(
+                esc_html__('Invalid deactivation mode.', 'private-file-uploader'),
+                esc_html__('Invalid request', 'private-file-uploader'),
+                ['response' => 400]
+            );
+        }
+
         $root = Plugin::storage_root_base();
+
+        if (file_exists($root) && (!is_dir($root) || is_link($root))) {
+            wp_die(
+                esc_html__('The storage path is not a regular directory. No files were changed and the plugin remains active.', 'private-file-uploader'),
+                esc_html__('Storage error', 'private-file-uploader'),
+                ['response' => 500]
+            );
+        }
 
         Utils::log_info('Safe deactivate initiated', [
             'mode' => $mode,
@@ -1011,16 +1144,27 @@ class Admin
             $size_before = Utils::get_directory_size($root);
             $files_count = Utils::count_directory_files($root, true);
 
-            Utils::recursive_rmdir($root);
+            $deleted = !is_dir($root) || Utils::recursive_rmdir($root);
+            clearstatcache(true, $root);
+
+            if (!$deleted || file_exists($root)) {
+                Utils::log_error('Storage deletion failed during deactivation', ['root' => $root]);
+                wp_die(
+                    esc_html__('The storage directory could not be deleted completely. The plugin remains active.', 'private-file-uploader'),
+                    esc_html__('Storage error', 'private-file-uploader'),
+                    ['response' => 500]
+                );
+            }
 
             Utils::log_info('Storage deleted during deactivation', [
                 'size_deleted' => Utils::human_bytes($size_before),
                 'files_deleted' => $files_count
             ]);
 
-            $msg = 'pfu_deleted';
+            $msg = 'privfileup_deleted';
         } else {
-            // Write deny rules for Apache/IIS if possible
+            // Write deny rules for Apache/IIS if storage exists.
+            $rules_written = !is_dir($root);
             require_once ABSPATH . 'wp-admin/includes/file.php';
 
             global $wp_filesystem;
@@ -1036,22 +1180,32 @@ class Admin
                 $htaccess_file = trailingslashit($root) . '.htaccess';
                 $webconf_file  = trailingslashit($root) . 'web.config';
 
-                $wp_filesystem->put_contents($htaccess_file, $htaccess_content, FS_CHMOD_FILE);
-                $wp_filesystem->put_contents($webconf_file,  $web_config_content, FS_CHMOD_FILE);
+                $apache_written = (bool) $wp_filesystem->put_contents($htaccess_file, $htaccess_content, FS_CHMOD_FILE);
+                $iis_written    = (bool) $wp_filesystem->put_contents($webconf_file, $web_config_content, FS_CHMOD_FILE);
+                $rules_written  = $apache_written && $iis_written;
+            }
+
+            if (!$rules_written) {
+                Utils::log_error('Deny rules could not be written during deactivation', ['root' => $root]);
+                wp_die(
+                    esc_html__('Access-control files could not be written. No files were changed and the plugin remains active.', 'private-file-uploader'),
+                    esc_html__('Storage error', 'private-file-uploader'),
+                    ['response' => 500]
+                );
             }
 
             Utils::log_info('Deny rules written during deactivation', [
                 'root' => $root
             ]);
 
-            $msg = 'pfu_denied';
+            $msg = 'privfileup_denied';
         }
 
         // Deactivate plugin programmatically
-        deactivate_plugins(plugin_basename(PFU_PLUGIN_FILE));
+        deactivate_plugins(plugin_basename(PRIVFILEUP_PLUGIN_FILE), false, false);
 
         // Redirect back to Plugins screen with admin notice
-        $url = add_query_arg('pfu_notice', $msg, admin_url('plugins.php'));
+        $url = add_query_arg('privfileup_notice', $msg, admin_url('plugins.php'));
         wp_safe_redirect($url);
         exit;
     }
@@ -1069,8 +1223,8 @@ class Admin
             <h1><?php esc_html_e('Private Uploader – Settings', 'private-file-uploader'); ?></h1>
             <form method="post" action="options.php">
                 <?php
-                settings_fields('pfu_settings_group');
-                do_settings_sections('pfu-settings');
+                settings_fields('privfileup_settings_group');
+                do_settings_sections('privfileup-settings');
                 submit_button();
                 ?>
             </form>
@@ -1081,53 +1235,39 @@ class Admin
     /**
      * Render user deletion form options
      *
-     * @param \WP_User $user User being deleted
+     * @param \WP_User $current_user Current administrator.
+     * @param int[]    $user_ids     IDs selected for deletion.
      */
-    public static function delete_user_form($user): void
+    public static function delete_user_form($current_user, array $user_ids = []): void
     {
         if (!current_user_can('delete_users')) {
             return;
         }
 
-        // Calculate IDs to exclude (single user or bulk)
-        $exclude_ids = [];
-
-        // Singola cancellazione: ?user=ID
-        $user_raw = filter_input(INPUT_GET, 'user', FILTER_DEFAULT);
-        if ($user_raw !== null && $user_raw !== false && $user_raw !== '') {
-            $exclude_ids[] = absint(wp_unslash($user_raw));
-        }
-
-        // Bulk: ?users[]=ID&users[]=ID
-        $users_raw = filter_input(INPUT_GET, 'users', FILTER_DEFAULT, FILTER_REQUIRE_ARRAY);
-        if (!empty($users_raw) && is_array($users_raw)) {
-            $users = wp_unslash($users_raw);
-            $exclude_ids = array_merge($exclude_ids, array_map('absint', (array) $users));
-        }
-
-        $exclude_ids = array_values(array_unique(array_filter($exclude_ids, static fn($n) => $n > 0)));
+        unset($current_user);
+        $exclude_ids = array_values(array_unique(array_filter(array_map('absint', $user_ids))));
 
     ?>
         <h2><?php esc_html_e('Private Uploader – User files', 'private-file-uploader'); ?></h2>
         <p><?php esc_html_e('Choose what to do with this user\'s uploaded files.', 'private-file-uploader'); ?></p>
 
-        <?php wp_nonce_field('pfu_delete_user_files_' . (int) $user->ID, 'pfu_nonce'); ?>
+        <?php wp_nonce_field('privfileup_delete_user_files', 'privfileup_nonce'); ?>
 
-        <fieldset class="pfu-box" style="border:1px solid #ccd0d4;padding:12px;max-width:680px;background:#fff">
+        <fieldset class="privfileup-box" style="border:1px solid #ccd0d4;padding:12px;max-width:680px;background:#fff">
             <label style="display:block;margin-bottom:8px">
-                <input type="radio" name="pfu_user_files_action" value="delete" />
+                <input type="radio" name="privfileup_user_files_action" value="delete" />
                 <strong><?php esc_html_e('Delete all files', 'private-file-uploader'); ?></strong> –
                 <?php esc_html_e('remove this user\'s storage directory permanently.', 'private-file-uploader'); ?>
             </label>
 
             <label style="display:block;margin-bottom:8px">
-                <input type="radio" name="pfu_user_files_action" value="reassign" checked />
+                <input type="radio" name="privfileup_user_files_action" value="reassign" checked />
                 <strong><?php esc_html_e('Reassign to another user', 'private-file-uploader'); ?></strong> –
                 <?php esc_html_e('move the storage directory to the selected user.', 'private-file-uploader'); ?>
                 <br />
                 <?php
                 wp_dropdown_users([
-                    'name' => 'pfu_reassign_user',
+                    'name' => 'privfileup_reassign_user',
                     'selected' => '0',
                     'option_none_value' => '0',
                     'show_option_none' => __('— Select user —', 'private-file-uploader'),
@@ -1136,15 +1276,15 @@ class Admin
                     'order' => 'ASC',
                     'show' => 'user_login',
                     'include_selected' => true,
-                    'who' => '',
+                    'capability' => 'upload_files',
                 ]);
                 ?>
             </label>
 
             <label style="display:block;margin-bottom:8px">
-                <input type="radio" name="pfu_user_files_action" value="keep_deny" />
-                <strong><?php esc_html_e('Keep files (no automatic blocking)', 'private-file-uploader'); ?></strong> –
-                <?php esc_html_e('keep files on disk. You must manually add web server rules to block access (Apache/Nginx/IIS).', 'private-file-uploader'); ?>
+                <input type="radio" name="privfileup_user_files_action" value="keep_deny" />
+                <strong><?php esc_html_e('Keep files in quarantine', 'private-file-uploader'); ?></strong> –
+                <?php esc_html_e('move the files outside the deleted user\'s reusable login folder and add Apache/IIS deny rules where possible.', 'private-file-uploader'); ?>
             </label>
         </fieldset>
 <?php
@@ -1157,36 +1297,78 @@ class Admin
      */
     public static function handle_delete_user(int $user_id): void
     {
-        if (!current_user_can('delete_users')) {
-            return;
+        if (!self::process_deleted_user_files($user_id, true)) {
+            self::stop_user_deletion();
         }
+    }
 
+    /** Quarantine storage across all sites, including former memberships. */
+    public static function handle_network_delete_user(int $user_id): void
+    {
+        $offset = 0;
+        do {
+            $site_ids = get_sites(['fields' => 'ids', 'number' => 100, 'offset' => $offset, 'orderby' => 'id', 'order' => 'ASC']);
+            foreach ($site_ids as $site_id) {
+                switch_to_blog((int) $site_id);
+                try {
+                    $safe = self::process_deleted_user_files($user_id, false);
+                } finally {
+                    restore_current_blog();
+                }
+                if (!$safe) {
+                    self::stop_user_deletion();
+                }
+            }
+            $offset += count($site_ids);
+        } while (count($site_ids) === 100);
+    }
 
-        // Verifica nonce PRIMA di processare qualsiasi dato del form
-        if (! isset($_POST['pfu_nonce'])) {
-            return;
-        }
+    /** Stop before Core removes the user and makes the login reusable. */
+    private static function stop_user_deletion(): void
+    {
+        wp_die(
+            esc_html__('The user was not deleted because their uploaded files could not be removed or quarantined. Check storage permissions and retry. Files already quarantined remain preserved.', 'private-file-uploader'),
+            esc_html__('Storage error', 'private-file-uploader'),
+            ['response' => 500]
+        );
+    }
 
-        check_admin_referer('pfu_delete_user_files_' . (int) $user_id, 'pfu_nonce');
-
-        $action = isset($_POST['pfu_user_files_action'])
-            ? sanitize_key(wp_unslash($_POST['pfu_user_files_action']))
-            : '';
-
-        if ($action === '') {
-            return;
-        }
-
+    /** Process one site's files without creating storage or terminating a site switch. */
+    private static function process_deleted_user_files(int $user_id, bool $interactive): bool
+    {
         $user = get_user_by('id', $user_id);
         if (!$user) {
-            return;
+            return true;
         }
 
         $root = Plugin::storage_root_base();
-        $src = $root . DIRECTORY_SEPARATOR . $user->user_login;
+        $paths = Plugin::get_user_base($user, false);
+        if (is_wp_error($paths)) {
+            // A dot/invalid login never identifies an owned storage directory.
+            // In particular, never delete the parent directory on its behalf.
+            return $paths->get_error_code() === 'privfileup_unsafe_username';
+        }
+        $username = $paths['username'];
+        $src = $paths['path'];
 
         if (!is_dir($src)) {
-            return;
+            return true;
+        }
+
+        // Programmatic, CLI, multisite, or otherwise non-interactive deletion
+        // must not leave data under a login that WordPress may reuse later.
+        if (!$interactive || !current_user_can('delete_users') || !isset($_POST['privfileup_nonce'])) {
+            return self::quarantine_user_storage($src, $root, $user_id);
+        }
+
+        check_admin_referer('privfileup_delete_user_files', 'privfileup_nonce');
+
+        $action = isset($_POST['privfileup_user_files_action'])
+            ? sanitize_key(wp_unslash($_POST['privfileup_user_files_action']))
+            : '';
+
+        if (!in_array($action, ['delete', 'reassign', 'keep_deny'], true)) {
+            return self::quarantine_user_storage($src, $root, $user_id);
         }
 
         Utils::log_info('User deletion: processing files', [
@@ -1200,7 +1382,18 @@ class Admin
                 $size = Utils::get_directory_size($src);
                 $count = Utils::count_directory_files($src, true);
 
-                Utils::recursive_rmdir($src);
+                $deleted = Utils::recursive_rmdir($src);
+                clearstatcache(true, $src);
+
+                if (!$deleted || file_exists($src)) {
+                    Utils::log_error('User file deletion failed', [
+                        'user_id' => $user_id,
+                        'username' => $username,
+                    ]);
+                    self::quarantine_user_storage($src, $root, $user_id);
+                    set_transient('privfileup_notice_users', 'operation_failed', 60);
+                    break;
+                }
 
                 Utils::log_info('User files deleted', [
                     'user_id' => $user_id,
@@ -1209,31 +1402,36 @@ class Admin
                     'files_deleted' => $count
                 ]);
 
-                set_transient('pfu_notice_users', 'deleted_ok', 60);
+                set_transient('privfileup_notice_users', 'deleted_ok', 60);
                 break;
 
             case 'reassign':
-                $to_id = isset($_POST['pfu_reassign_user']) ? (int)$_POST['pfu_reassign_user'] : 0;
+                $to_id = isset($_POST['privfileup_reassign_user'])
+                    ? absint(wp_unslash($_POST['privfileup_reassign_user']))
+                    : 0;
                 $to = $to_id ? get_user_by('id', $to_id) : null;
 
-                if ($to && $to->user_login) {
-                    $dst = $root . DIRECTORY_SEPARATOR . $to->user_login;
-
-                    // If destination exists, rename with timestamp suffix
-                    if (is_dir($dst)) {
-                        $suffix = '-' . gmdate('YmdHis');
-                        $dst = $dst . $suffix;
+                if ($to && $to_id !== $user_id && user_can($to, 'upload_files')) {
+                    $destination = Plugin::get_user_base($to, false);
+                    if (is_wp_error($destination)) {
+                        self::quarantine_user_storage($src, $root, $user_id);
+                        set_transient('privfileup_notice_users', 'operation_failed', 60);
+                        break;
                     }
+                    $dst = $destination['path'];
 
-                    require_once ABSPATH . 'wp-admin/includes/file.php';
-                    global $wp_filesystem;
+                    $moved = self::reassign_user_storage($src, $dst);
+                    clearstatcache(true, $src);
+                    clearstatcache(true, $dst);
 
-                    if (! $wp_filesystem) {
-                        WP_Filesystem();
-                    }
-
-                    if ($wp_filesystem) {
-                        $wp_filesystem->move($src, $dst, true);
+                    if (!$moved || file_exists($src) || !is_dir($dst)) {
+                        Utils::log_error('User file reassignment failed', [
+                            'from_user_id' => $user_id,
+                            'to_user_id' => $to_id,
+                        ]);
+                        self::quarantine_user_storage($src, $root, $user_id);
+                        set_transient('privfileup_notice_users', 'operation_failed', 60);
+                        break;
                     }
 
                     Utils::log_info('User files reassigned', [
@@ -1243,21 +1441,309 @@ class Admin
                         'to_username' => $to->user_login,
                         'destination' => $dst
                     ]);
+                    set_transient('privfileup_notice_users', 'reassigned_ok', 60);
+                } else {
+                    self::quarantine_user_storage($src, $root, $user_id);
+                    set_transient('privfileup_notice_users', 'operation_failed', 60);
                 }
-
-                set_transient('pfu_notice_users', 'reassigned_ok', 60);
                 break;
 
             case 'keep_deny':
-                Utils::log_info('User files kept (manual deny rules required)', [
+                $quarantined = self::quarantine_user_storage($src, $root, $user_id);
+                Utils::log_info('User files kept in quarantine', [
                     'user_id' => $user_id,
                     'username' => $user->user_login,
-                    'path' => $src
+                    'success' => $quarantined,
                 ]);
 
-                set_transient('pfu_notice_users', 'kept_manual_rules', 60);
+                set_transient(
+                    'privfileup_notice_users',
+                    $quarantined ? 'kept_quarantined' : 'operation_failed',
+                    60
+                );
                 break;
         }
+
+        clearstatcache(true, $src);
+        return !file_exists($src) && !is_link($src);
+    }
+
+    /**
+     * Move retained data away from a reusable login-derived folder.
+     *
+     * @param string $source  Canonical user directory.
+     * @param string $root    Plugin storage root.
+     * @param int    $user_id Deleted user ID.
+     * @return bool True when the directory was quarantined.
+     */
+    private static function quarantine_user_storage(string $source, string $root, int $user_id): bool
+    {
+        if (
+            !is_dir($source) ||
+            is_link($source) ||
+            !Utils::is_path_within_base($root, $source)
+        ) {
+            return false;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        global $wp_filesystem;
+
+        if (!$wp_filesystem && !WP_Filesystem()) {
+            return false;
+        }
+        if (!$wp_filesystem) {
+            return false;
+        }
+
+        // Keep quarantined data one level below an internal directory whose
+        // name cannot be produced by sanitize_user(..., true). A WordPress
+        // login can therefore never resolve to this storage path.
+        $quarantine_root = trailingslashit($root) . self::ORPHAN_DIRECTORY;
+        if (
+            (!is_dir($quarantine_root) && !wp_mkdir_p($quarantine_root)) ||
+            is_link($quarantine_root) ||
+            !Utils::is_path_within_base($root, $quarantine_root)
+        ) {
+            return false;
+        }
+
+        $htaccess_content   = "Options -Indexes\nRequire all denied\n";
+        $web_config_content = "<configuration>\n  <system.webServer>\n    <security>\n      <authorization>\n        <remove users=\"*\" roles=\"\" verbs=\"\" />\n        <add accessType=\"Deny\" users=\"*\" />\n      </authorization>\n    </security>\n    <directoryBrowse enabled=\"false\" />\n  </system.webServer>\n</configuration>\n";
+
+        // Establish parent-level access controls before moving retained data.
+        $wp_filesystem->put_contents(
+            trailingslashit($quarantine_root) . 'index.html',
+            '<!-- silence is golden -->',
+            FS_CHMOD_FILE
+        );
+        $wp_filesystem->put_contents(
+            trailingslashit($quarantine_root) . '.htaccess',
+            $htaccess_content,
+            FS_CHMOD_FILE
+        );
+        $wp_filesystem->put_contents(
+            trailingslashit($quarantine_root) . 'web.config',
+            $web_config_content,
+            FS_CHMOD_FILE
+        );
+
+        $token       = strtolower(wp_generate_password(16, false, false));
+        $folder_name = absint($user_id) . '-' . sanitize_key($token);
+        $destination = trailingslashit($quarantine_root) . $folder_name;
+
+        while (file_exists($destination)) {
+            $token       = strtolower(wp_generate_password(16, false, false));
+            $folder_name = absint($user_id) . '-' . sanitize_key($token);
+            $destination = trailingslashit($quarantine_root) . $folder_name;
+        }
+
+        $moved = (bool) $wp_filesystem->move($source, $destination, false);
+        clearstatcache(true, $source);
+        clearstatcache(true, $destination);
+        if (!$moved || file_exists($source) || !is_dir($destination)) {
+            return false;
+        }
+
+        // Remove only sidecars matching the complete legacy schema. Uploaded
+        // JSON documents with a similar suffix remain untouched.
+        $legacy_cleanup_ok = true;
+        $entries = scandir($destination);
+        if (!is_array($entries)) {
+            $legacy_cleanup_ok = false;
+        } else {
+            foreach ($entries as $entry) {
+                $metadata = trailingslashit($destination) . $entry;
+                if (
+                    Utils::is_legacy_metadata_sidecar($metadata) &&
+                    !Utils::delete_legacy_metadata_sidecar($metadata)
+                ) {
+                    $legacy_cleanup_ok = false;
+                }
+            }
+        }
+
+        $wp_filesystem->put_contents(
+            trailingslashit($destination) . '.htaccess',
+            $htaccess_content,
+            FS_CHMOD_FILE
+        );
+        $wp_filesystem->put_contents(
+            trailingslashit($destination) . 'web.config',
+            $web_config_content,
+            FS_CHMOD_FILE
+        );
+
+        return $legacy_cleanup_ok;
+    }
+
+    /**
+     * Move a user's flat storage directory into another user's canonical one.
+     *
+     * Existing destination files are kept. Colliding source files receive a
+     * numeric suffix, and their generated thumbnail moves with them.
+     *
+     * @param string $source      Existing source directory.
+     * @param string $destination Canonical target directory.
+     * @return bool True only when the complete move succeeds.
+     */
+    private static function reassign_user_storage(string $source, string $destination): bool
+    {
+        if (!is_dir($source) || is_link($source)) {
+            return false;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        global $wp_filesystem;
+
+        if (!$wp_filesystem && !WP_Filesystem()) {
+            return false;
+        }
+        if (!$wp_filesystem) {
+            return false;
+        }
+
+        // Remove legacy request-metadata sidecars before data changes owner.
+        $legacy_entries = scandir($source);
+        if (!is_array($legacy_entries)) {
+            return false;
+        }
+        foreach ($legacy_entries as $legacy_entry) {
+            $legacy_path = trailingslashit($source) . $legacy_entry;
+            if (!Utils::is_legacy_metadata_sidecar($legacy_path)) {
+                continue;
+            }
+
+            if (!Utils::delete_legacy_metadata_sidecar($legacy_path)) {
+                return false;
+            }
+        }
+
+        // The fast path preserves the directory atomically when the target has
+        // never opened its library and therefore has no canonical folder yet.
+        if (!file_exists($destination)) {
+            $moved = (bool) $wp_filesystem->move($source, $destination, false);
+            clearstatcache(true, $source);
+            clearstatcache(true, $destination);
+            return $moved && !file_exists($source) && is_dir($destination);
+        }
+
+        if (!is_dir($destination) || is_link($destination)) {
+            return false;
+        }
+
+        $entries = scandir($source);
+        if (!is_array($entries)) {
+            return false;
+        }
+
+        $system_files = ['index.html', '.htaccess', 'web.config'];
+        $originals    = [];
+        $expected     = [];
+
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..' || in_array($entry, $system_files, true)) {
+                continue;
+            }
+
+            $path = trailingslashit($source) . $entry;
+            if (!is_file($path) || is_link($path)) {
+                return false;
+            }
+
+            if (!Utils::is_thumb_filename($entry)) {
+                $originals[] = $entry;
+            }
+        }
+
+        // Preflight the directory before moving anything. Orphaned artifacts
+        // are left untouched and make the operation fail safely.
+        foreach ($originals as $entry) {
+            $expected[$entry] = true;
+
+            $metadata = $entry . '.meta.json';
+            if (Utils::is_legacy_metadata_sidecar(trailingslashit($source) . $metadata)) {
+                $expected[$metadata] = true;
+            }
+
+            $thumbnail = basename(Utils::append_suffix($entry, '-privfileup-thumb'));
+            if (is_file(trailingslashit($source) . $thumbnail)) {
+                $expected[$thumbnail] = true;
+            }
+        }
+
+        foreach ($entries as $entry) {
+            if (
+                $entry === '.' ||
+                $entry === '..' ||
+                in_array($entry, $system_files, true) ||
+                isset($expected[$entry])
+            ) {
+                continue;
+            }
+            return false;
+        }
+
+        $planned_names = [];
+        $moves         = [];
+
+        foreach ($originals as $entry) {
+            $info      = pathinfo($entry);
+            $stem      = isset($info['filename']) ? $info['filename'] : $entry;
+            $extension = isset($info['extension']) ? '.' . $info['extension'] : '';
+            $candidate = $entry;
+            $counter   = 1;
+
+            do {
+                $dest_main  = trailingslashit($destination) . $candidate;
+                $dest_meta  = $dest_main . '.meta.json';
+                $dest_thumb = Utils::append_suffix($dest_main, '-privfileup-thumb');
+                $collision  = file_exists($dest_main) ||
+                    file_exists($dest_meta) ||
+                    file_exists($dest_thumb) ||
+                    isset($planned_names[$candidate]);
+
+                if ($collision) {
+                    $candidate = $stem . '-' . $counter . $extension;
+                    ++$counter;
+                }
+            } while ($collision);
+
+            $planned_names[$candidate] = true;
+            $source_main               = trailingslashit($source) . $entry;
+            $moves[]                   = [$source_main, $dest_main];
+
+            $source_meta = $source_main . '.meta.json';
+            if (Utils::is_legacy_metadata_sidecar($source_meta)) {
+                $moves[] = [$source_meta, $dest_meta];
+            }
+
+            $source_thumb = Utils::append_suffix($source_main, '-privfileup-thumb');
+            if (is_file($source_thumb)) {
+                $moves[] = [$source_thumb, $dest_thumb];
+            }
+        }
+
+        $completed = [];
+        foreach ($moves as [$from, $to]) {
+            if (!$wp_filesystem->move($from, $to, false)) {
+                foreach (array_reverse($completed) as [$rollback_from, $rollback_to]) {
+                    $wp_filesystem->move($rollback_to, $rollback_from, false);
+                }
+                return false;
+            }
+            $completed[] = [$from, $to];
+        }
+
+        if (!Utils::recursive_rmdir($source)) {
+            wp_mkdir_p($source);
+            foreach (array_reverse($completed) as [$rollback_from, $rollback_to]) {
+                $wp_filesystem->move($rollback_to, $rollback_from, false);
+            }
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -1265,16 +1751,16 @@ class Admin
      */
     public static function maybe_hook_users_notice(): void
     {
-        $code = get_transient('pfu_notice_users');
+        $code = get_transient('privfileup_notice_users');
         if (!$code) {
             return;
         }
 
         add_action('admin_notices', function () use ($code) {
             $messages = [
-                'kept_manual_rules' => [
+                'kept_quarantined' => [
                     'type' => 'warning',
-                    'text' => __('Private Uploader: files were kept. Please add deny rules to your web server manually (Apache/Nginx/IIS) to block public access.', 'private-file-uploader')
+                    'text' => __('Private Uploader: files were kept in a quarantined folder outside the deleted user\'s login path. Verify your web-server access rules before restoring them.', 'private-file-uploader')
                 ],
                 'reassigned_ok' => [
                     'type' => 'success',
@@ -1283,6 +1769,10 @@ class Admin
                 'deleted_ok' => [
                     'type' => 'success',
                     'text' => __('Private Uploader: user files have been deleted.', 'private-file-uploader')
+                ],
+                'operation_failed' => [
+                    'type' => 'error',
+                    'text' => __('Private Uploader: the requested file operation could not be completed. Any retained files were quarantined where possible.', 'private-file-uploader')
                 ]
             ];
 
@@ -1296,19 +1786,24 @@ class Admin
             }
         }, 1);
 
-        delete_transient('pfu_notice_users');
+        delete_transient('privfileup_notice_users');
     }
 
     public static function library_notices(): void
     {
-        // Mostra i notice solo nella pagina Library, indipendentemente dallo screen id completo
-        if (! isset($_GET['page']) || $_GET['page'] !== 'pfu-library') {
+        // Show the notice only on the Library page, regardless of the full screen ID
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only screen selector; no state is changed.
+        $page = isset($_GET['page']) ? sanitize_key(wp_unslash($_GET['page'])) : '';
+        if ($page !== 'privfileup-library') {
             return;
         }
 
-        $code = isset($_GET['pfu_notice']) ? sanitize_key((string)$_GET['pfu_notice']) : '';
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only redirect notice; value is sanitized.
+        $code = isset($_GET['privfileup_notice']) ? sanitize_key(wp_unslash($_GET['privfileup_notice'])) : '';
         if ($code === 'renamed_ok') {
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only redirect notice; value is sanitized.
             $old = isset($_GET['old']) ? sanitize_text_field(wp_unslash($_GET['old'])) : '';
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only redirect notice; value is sanitized.
             $new = isset($_GET['new']) ? sanitize_text_field(wp_unslash($_GET['new'])) : '';
 
             echo '<div class="notice notice-success is-dismissible"><p>'
@@ -1316,9 +1811,13 @@ class Admin
                 . '<code>' . esc_html($old) . '</code> → <code>' . esc_html($new) . '</code>'
                 . '</p></div>';
         } elseif ($code === 'rename_err') {
-            $msg = isset($_GET['msg'])
-                ? sanitize_text_field(wp_unslash($_GET['msg']))
-                : esc_html__('Unable to rename file', 'private-file-uploader');
+            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only redirect notice; no state is changed.
+            if (isset($_GET['msg'])) {
+                // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only redirect notice; value is sanitized.
+                $msg = sanitize_text_field(wp_unslash($_GET['msg']));
+            } else {
+                $msg = __('Unable to rename file', 'private-file-uploader');
+            }
 
             echo '<div class="notice notice-error is-dismissible"><p>'
                 . esc_html__('Rename failed:', 'private-file-uploader') . ' ' . esc_html($msg)
@@ -1336,23 +1835,23 @@ class Admin
             );
         }
 
-        $file = isset($_POST['file'])
-            ? sanitize_text_field(wp_unslash($_POST['file']))
-            : '';
-
-        $new_name = isset($_POST['new_name'])
-            ? sanitize_text_field(wp_unslash($_POST['new_name']))
-            : '';
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Strict basename validation must not normalize a lookup into another filename.
+        $file = Plugin::sanitize_user_filename(isset($_POST['file']) ? wp_unslash($_POST['file']) : '');
+        // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- The exact basename is validated here and the target MIME is checked before moving.
+        $new_name = Plugin::sanitize_user_filename(isset($_POST['new_name']) ? wp_unslash($_POST['new_name']) : '');
+        if (is_wp_error($file) || is_wp_error($new_name)) {
+            self::redirect_library('rename_err', ['msg' => __('Invalid filename', 'private-file-uploader')]);
+        }
 
         // Nonce per singolo file
-        check_admin_referer('pfu_rename_' . $file);
+        check_admin_referer('privfileup_rename_' . $file);
 
-        $base = \PFU\Plugin::sanitize_user_filename($file);
+        $base = \PRIVFILEUP\Plugin::sanitize_user_filename($file);
         if (is_wp_error($base)) {
             self::redirect_library('rename_err', ['msg' => $base->get_error_message()]);
         }
 
-        $new = \PFU\Plugin::sanitize_user_filename($new_name);
+        $new = \PRIVFILEUP\Plugin::sanitize_user_filename($new_name);
         if (is_wp_error($new)) {
             self::redirect_library('rename_err', ['msg' => $new->get_error_message()]);
         }
@@ -1361,12 +1860,15 @@ class Admin
         }
 
         // No rename diretto di una thumbnail
-        if (\PFU\Utils::is_thumb_filename($base)) {
+        if (\PRIVFILEUP\Utils::is_thumb_filename($base)) {
             self::redirect_library('rename_err', ['msg' => __('Cannot rename generated thumbnails directly', 'private-file-uploader')]);
+        }
+        if (\PRIVFILEUP\Utils::is_metadata_file($base)) {
+            self::redirect_library('rename_err', ['msg' => __('Cannot rename metadata files directly', 'private-file-uploader')]);
         }
 
         // Evita di rinominare verso nomi riservati
-        if (\PFU\Utils::is_thumb_filename($new)) {
+        if (\PRIVFILEUP\Utils::is_thumb_filename($new)) {
             self::redirect_library('rename_err', ['msg' => __('Target name cannot be a generated thumbnail', 'private-file-uploader')]);
         }
         if (str_ends_with($new, '.meta.json')) {
@@ -1374,49 +1876,61 @@ class Admin
         }
 
         $user = wp_get_current_user();
-        $paths = \PFU\Plugin::get_user_base($user);
+        $paths = \PRIVFILEUP\Plugin::get_user_base($user);
+        if (is_wp_error($paths)) {
+            self::redirect_library('rename_err', ['msg' => $paths->get_error_message()]);
+        }
         $dir   = $paths['path'];
 
-        // Assicura che la cartella esista (come già fa get_user_base, ma è innocuo)
+        // Ensure the folder exists (get_user_base already does this, but it is harmless)
         wp_mkdir_p($dir);
 
-        // Conserva estensione originale se il nuovo nome non ne ha una
+        // Keep the original extension if the new name does not have one
         $dotOld = strrpos($base, '.');
         $dotNew = strrpos($new, '.');
         if ($dotOld !== false && $dotNew === false) {
-            $ext = substr($base, $dotOld);   // es: ".pdf"
+            $ext = substr($base, $dotOld);   // e.g. ".pdf"
             $new .= $ext;
         }
 
-        // Costruisci percorsi assoluti (sorgente e destinazione)
+        // Build absolute paths (source and destination)
         $srcAbs = $dir . DIRECTORY_SEPARATOR . $base;
         $dstAbs = $dir . DIRECTORY_SEPARATOR . $new;
+        $oldMeta = $srcAbs . '.meta.json';
+        $newMeta = $dstAbs . '.meta.json';
+        $oldThumb = \PRIVFILEUP\Utils::append_suffix($srcAbs, '-privfileup-thumb');
+        $newThumb = \PRIVFILEUP\Utils::append_suffix($dstAbs, '-privfileup-thumb');
 
-        // Normalizza (slash forward) per un confronto robusto (anche su Windows)
+        // Normalize (forward slash) for robust comparison (also on Windows)
         $normBase = untrailingslashit(\wp_normalize_path($dir));
         $normSrc  = \wp_normalize_path($srcAbs);
         $normDst  = \wp_normalize_path($dstAbs);
 
-        // La sorgente DEVE stare sotto la base e DEVE esistere
+        // The source MUST be under the base and MUST exist
         if (strpos($normSrc, $normBase . '/') !== 0 || !file_exists($srcAbs) || !is_file($srcAbs)) {
             self::redirect_library('rename_err', ['msg' => __('Invalid path', 'private-file-uploader')]);
         }
 
-        // La destinazione DEVE stare sotto la base e NON esistere ancora
+        $rename_validation = \PRIVFILEUP\Plugin::validate_rename_target($srcAbs, $base, $new);
+        if (is_wp_error($rename_validation)) {
+            self::redirect_library('rename_err', ['msg' => $rename_validation->get_error_message()]);
+        }
+
+        // The destination MUST be under the base and MUST NOT exist yet
         if (strpos($normDst, $normBase . '/') !== 0) {
             self::redirect_library('rename_err', ['msg' => __('Invalid path', 'private-file-uploader')]);
         }
-        if (file_exists($dstAbs)) {
+        if (file_exists($dstAbs) || file_exists($newMeta) || file_exists($newThumb)) {
             self::redirect_library('rename_err', ['msg' => __('Target filename already exists', 'private-file-uploader')]);
         }
 
-        // blinda anche la directory di destinazione
+        // Hardens the destination directory as well
         $dstDir = \wp_normalize_path(dirname($dstAbs));
         if ($dstDir !== $normBase) {
             self::redirect_library('rename_err', ['msg' => __('Invalid path', 'private-file-uploader')]);
         }
 
-        // Rinominare originale
+        // Rename the original
         require_once ABSPATH . 'wp-admin/includes/file.php';
         global $wp_filesystem;
 
@@ -1428,33 +1942,38 @@ class Admin
             self::redirect_library('rename_err', ['msg' => __('Filesystem not available', 'private-file-uploader')]);
         }
 
-        // Move principale
-        if (! $wp_filesystem->move($srcAbs, $dstAbs, false)) {
+        // Remove no-longer-used legacy request metadata first.
+        if (!\PRIVFILEUP\Utils::delete_legacy_metadata_sidecar($oldMeta)) {
             self::redirect_library('rename_err', ['msg' => __('Unable to rename file', 'private-file-uploader')]);
         }
 
-        // Move metadata
-        $oldMeta = $srcAbs . '.meta.json';
-        $newMeta = $dstAbs . '.meta.json';
-        if ($wp_filesystem->exists($oldMeta) && ! $wp_filesystem->is_dir($oldMeta)) {
-            $wp_filesystem->move($oldMeta, $newMeta, true);
+        $thumb_moved = false;
+        if (file_exists($oldThumb)) {
+            if (!is_file($oldThumb) || is_link($oldThumb)) {
+                self::redirect_library('rename_err', ['msg' => __('Unable to rename file', 'private-file-uploader')]);
+            }
+
+            $thumb_moved = (bool) $wp_filesystem->move($oldThumb, $newThumb, false);
+            if (!$thumb_moved) {
+                self::redirect_library('rename_err', ['msg' => __('Unable to rename file', 'private-file-uploader')]);
+            }
         }
 
-        // Move thumbnail
-        $oldThumb = \PFU\Utils::append_suffix($srcAbs, '-pfu-thumb');
-        $newThumb = \PFU\Utils::append_suffix($dstAbs, '-pfu-thumb');
-        if ($wp_filesystem->exists($oldThumb) && ! $wp_filesystem->is_dir($oldThumb)) {
-            $wp_filesystem->move($oldThumb, $newThumb, true);
+        // Move main file and roll back the thumbnail if it fails.
+        if (! $wp_filesystem->move($srcAbs, $dstAbs, false)) {
+            if ($thumb_moved) {
+                $wp_filesystem->move($newThumb, $oldThumb, false);
+            }
+            self::redirect_library('rename_err', ['msg' => __('Unable to rename file', 'private-file-uploader')]);
         }
-
 
         self::redirect_library('renamed_ok', ['old' => $base, 'new' => $new]);
     }
 
     private static function redirect_library(string $code, array $args = []): void
     {
-        $url = admin_url('admin.php?page=pfu-library');
-        $url = add_query_arg(array_merge(['pfu_notice' => $code], $args), $url);
+        $url = admin_url('admin.php?page=privfileup-library');
+        $url = add_query_arg(array_merge(['privfileup_notice' => $code], $args), $url);
         wp_safe_redirect($url);
         exit;
     }
