@@ -11,3 +11,5 @@ wp --path=/path/to/disposable-wordpress --user=admin eval-file /path/to/private-
 Run once in single-site and once in Multisite. Each run uses new fixture names. PHP 8.0+ is required. This script is excluded from release archives by `.distignore`.
 
 The tests exercise real WordPress REST dispatch, capabilities, nonce-checked admin handlers and user lifecycle hooks. Uploads use local fixtures with the plugin's sideload handler; they do not replace HTTP multipart/Application Password tests or browser checks.
+
+For uploader enqueue order, generated Nginx locations, and uninstall cleanup, run `tests/regression-p2.php` with the same command and safeguards. This second script **removes plugin options on every site** of the disposable installation, while verifying that uploaded content remains.

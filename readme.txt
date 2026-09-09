@@ -104,6 +104,9 @@ This plugin does not connect to external services. WordPress Application Passwor
 * Preserve exact filenames, including Unicode, when inspecting, renaming, and deleting files.
 * Require plugin deactivation permissions and prevent site-level actions from deactivating a network-active plugin.
 * Quarantine deleted users' files across all sites and stop user deletion if storage cleanup fails.
+* Load the Library uploader through WordPress script APIs.
+* Generate Nginx access rules from the actual storage URL, including subdirectory and custom uploads locations.
+* Remove plugin settings and notices from every site on Multisite uninstall while preserving uploaded files.
 
 = 1.2.1 =
 

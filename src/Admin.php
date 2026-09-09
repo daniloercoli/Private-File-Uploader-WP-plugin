@@ -68,8 +68,8 @@ class Admin
         wp_enqueue_script('plupload-all');
         wp_enqueue_script('jquery');
 
-        // Empty handle to inject inline script onto
-        wp_register_script('privfileup-library-uploader', false, ['plupload-all', 'jquery'], defined('PRIVFILEUP_VERSION') ? PRIVFILEUP_VERSION : '1.0.0', true);
+        // Load the uploader after its Core dependencies.
+        wp_register_script('privfileup-library-uploader', PRIVFILEUP_PLUGIN_URL . 'assets/js/library-uploader.js', ['plupload-all', 'jquery'], defined('PRIVFILEUP_VERSION') ? PRIVFILEUP_VERSION : '1.0.0', true);
         wp_enqueue_script('privfileup-library-uploader');
 
         // Data for upload via REST
@@ -89,9 +89,11 @@ class Admin
                     'uploading' => __('Uploading…', 'private-file-uploader'),
                     'done'      => __('Done', 'private-file-uploader'),
                     'failed'    => __('Failed', 'private-file-uploader'),
+                    'error'     => __('Error', 'private-file-uploader'),
+                    'confirmDelete' => __('Delete this file?', 'private-file-uploader'),
                 ],
             ])
-        ));
+        ), 'before');
 
         // Stili minimi
         wp_register_style('privfileup-admin-uploader', false, [], PRIVFILEUP_VERSION);
@@ -496,7 +498,7 @@ class Admin
                                 </p>
 
                                 <?php
-                                self::render_deny_rules_preview($htaccess_path, $web_config_path, $root);
+                                self::render_deny_rules_preview($htaccess_path, $web_config_path);
                                 ?>
                             </td>
                         </tr>
@@ -517,9 +519,8 @@ class Admin
      *
      * @param string $htaccess_path Path to .htaccess
      * @param string $web_config_path Path to web.config
-     * @param string $root Root directory
      */
-    private static function render_deny_rules_preview(string $htaccess_path, string $web_config_path, string $root): void
+    private static function render_deny_rules_preview(string $htaccess_path, string $web_config_path): void
     {
     ?>
         <h4><?php esc_html_e('Apache (.htaccess)', 'private-file-uploader'); ?></h4>
@@ -549,11 +550,47 @@ class Admin
         </p>
 
         <h4><?php esc_html_e('Nginx (add to server config)', 'private-file-uploader'); ?></h4>
-        <pre class="privfileup-code-block"><code><?php
-                                            $nginx_location = trailingslashit(str_replace(ABSPATH, '/', $root));
-                                            echo esc_html("location ^~ {$nginx_location} {\n    deny all;\n}");
-                                            ?></code></pre>
+        <?php $nginx_rule = self::get_nginx_deny_rule(); ?>
+        <?php if ($nginx_rule !== ''): ?>
+            <pre class="privfileup-code-block"><code><?php echo esc_html($nginx_rule); ?></code></pre>
+        <?php else: ?>
+            <p class="description"><?php esc_html_e('This storage URL needs a custom Nginx access rule. Ask your server administrator to block the storage URL below.', 'private-file-uploader'); ?></p>
+        <?php endif; ?>
+        <p class="description">
+            <?php esc_html_e('Apply access controls on the server serving this storage URL. A separate uploads host or CDN needs its own configuration:', 'private-file-uploader'); ?>
+            <code><?php echo esc_url(self::get_storage_url()); ?></code>
+        </p>
     <?php
+    }
+
+    /** The effective public storage URL, including subdirectory installations. */
+    private static function get_storage_url(): string
+    {
+        $uploads = wp_get_upload_dir();
+        return empty($uploads['baseurl']) ? '' : trailingslashit($uploads['baseurl']) . Plugin::SUB_BASE . '/';
+    }
+
+    /** Generate a quoted Nginx prefix for its decoded request URI. */
+    private static function get_nginx_deny_rule(): string
+    {
+        $path = wp_parse_url(self::get_storage_url(), PHP_URL_PATH);
+        if (!is_string($path) || $path === '') {
+            return '';
+        }
+
+        $path = rawurldecode($path);
+        // Spaces and Unicode are safe in quotes. For configuration syntax,
+        // control characters or dot segments, request a custom rule instead
+        // of emitting an ambiguous, injectable or overly broad location.
+        if (
+            $path[0] !== '/' ||
+            preg_match('/[\x00-\x1F\x7F"\\\\$;{}]/', $path) ||
+            preg_match('#(?:^|/)\.{1,2}(?:/|$)#', $path)
+        ) {
+            return '';
+        }
+
+        return 'location ^~ "' . $path . '" {' . "\n    deny all;\n}";
     }
 
     /**
@@ -759,96 +796,7 @@ class Admin
                 <?php self::render_files_table($files); ?>
             <?php endif; ?>
         </div>
-        <script type="text/javascript">
-            jQuery(function($) {
-                if (!window.PRIVFILEUP_UPLOADER) return;
 
-                var cfg = window.PRIVFILEUP_UPLOADER;
-                var $box = $('#privfileup-uploader');
-                var $progress = $('#privfileup-progress');
-                var $list = $('#privfileup-list');
-
-                var uploader = new plupload.Uploader({
-                    browse_button: 'privfileup-pick',
-                    container: 'privfileup-uploader',
-                    drop_element: 'privfileup-uploader',
-                    url: cfg.restUrl,
-                    runtimes: 'html5,html4',
-                    multi_selection: true,
-                    headers: {
-                        'X-WP-Nonce': cfg.restNonce
-                    },
-                    multipart: true,
-                    multipart_params: {},
-                    file_data_name: 'file',
-                    filters: {
-                        max_file_size: cfg.maxBytes > 0 ? (cfg.maxBytes + 'b') : undefined
-                    }
-                });
-
-                uploader.bind('Init', function() {
-                    var el = document.getElementById('privfileup-uploader');
-                    el.addEventListener('dragover', function() {
-                        $box.addClass('dragover');
-                    });
-                    el.addEventListener('dragleave', function() {
-                        $box.removeClass('dragover');
-                    });
-                    el.addEventListener('drop', function() {
-                        $box.removeClass('dragover');
-                    });
-                });
-
-                uploader.bind('FilesAdded', function(up, files) {
-                    $progress.show().text(cfg.strings.uploading);
-                    plupload.each(files, function(file) {
-                        var row = $('<div/>', {
-                                'class': 'privfileup-uploader-item',
-                                id: 'privfileup-' + file.id
-                            })
-                            .append($('<span/>').text(file.name + ' (' + plupload.formatSize(file.size) + ')'))
-                            .append($('<span/>', {
-                                'class': 'privfileup-status',
-                                text: '0%'
-                            }));
-                        $list.append(row);
-                    });
-                    up.refresh();
-                    up.start();
-                });
-
-                uploader.bind('UploadProgress', function(up, file) {
-                    $('#privfileup-' + file.id + ' .privfileup-status').text(file.percent + '%');
-                });
-
-                uploader.bind('FileUploaded', function(up, file, info) {
-                    try {
-                        var res = JSON.parse(info.response || '{}');
-                        $('#privfileup-' + file.id + ' .privfileup-status').text(res && res.ok ? cfg.strings.done : cfg.strings.failed);
-                    } catch (e) {
-                        $('#privfileup-' + file.id + ' .privfileup-status').text(cfg.strings.failed);
-                    }
-                });
-
-                uploader.bind('Error', function(up, err) {
-                    var msg = err && err.message ? err.message : 'Error';
-                    var fileId = err.file && err.file.id ? err.file.id : null;
-                    if (fileId) {
-                        $('#privfileup-' + fileId + ' .privfileup-status').text(cfg.strings.failed + ' – ' + msg);
-                    } else {
-                        $list.append($('<div/>', {
-                            'class': 'privfileup-uploader-item'
-                        }).text(cfg.strings.failed + ' – ' + msg));
-                    }
-                });
-
-                uploader.bind('UploadComplete', function() {
-                    location.reload(); // refresh the table
-                });
-
-                uploader.init();
-            });
-        </script>
 
     <?php
     }
@@ -975,7 +923,6 @@ class Admin
                             class="privfileup-thumb"
                             src="<?php echo esc_url($thumb_url ?: $url); ?>"
                             data-fallback="<?php echo esc_url($url); ?>"
-                            onerror="if(this.dataset.fallback){this.onerror=null;this.src=this.dataset.fallback;}"
                             alt=""
                             loading="lazy" />
                     </a>
@@ -995,9 +942,8 @@ class Admin
             <td><?php echo esc_html(gmdate('Y-m-d H:i', $file['mtime'])); ?></td>
             <td><?php echo esc_html($file['mime']); ?></td>
             <td>
-                <a class="button button-small"
-                    href="<?php echo esc_url($delete_url); ?>"
-                    onclick="return confirm('<?php echo esc_js(__('Delete this file?', 'private-file-uploader')); ?>');">
+                <a class="button button-small privfileup-delete-file"
+                    href="<?php echo esc_url($delete_url); ?>">
                     <?php esc_html_e('Delete', 'private-file-uploader'); ?>
                 </a>
                 <details class="privfileup-rename" style="display:inline-block;margin-left:8px;">
